@@ -83,7 +83,9 @@ Your JSON response fields are not suggestions — the system acts on them immedi
 
 The agent loads specialized skills based on message intent. These are protocol files in `runtime/learning/skills/`.
 
-### Social Skills [ALWAYS]
+### Social Skills
+
+**Loading:** Always loaded into every prompt
 
 **File:** `social.md` — Loaded into every prompt.
 
@@ -149,7 +151,9 @@ The agent loads specialized skills based on message intent. These are protocol f
 **Time zone awareness:** Don't assume time of day based on UTC timestamp without converting to the family's timezone. Example: 05:53 UTC Thursday = 11:53 PM Wednesday CT.
 </Info>
 
-### Scheduling Skills [INTENT: SCHEDULE, AVAILABILITY]
+### Scheduling Skills
+
+**Intent triggers:** SCHEDULE, AVAILABILITY
 
 **File:** `scheduling.md` — Loaded when message involves scheduling, shifts, rides, appointments.
 
@@ -229,7 +233,9 @@ When the need is rides to/from a location on a recurring schedule:
 - **Structure:** paired slots (morning pickup + afternoon return)
 - **Each slot needs one driver assigned**
 
-### Onboarding Skills [INTENT: ONBOARDING, NEW_MEMBER]
+### Onboarding Skills
+
+**Intent triggers:** ONBOARDING, NEW_MEMBER
 
 **File:** `onboarding.md` — Loaded for first-contact flows and member registration.
 

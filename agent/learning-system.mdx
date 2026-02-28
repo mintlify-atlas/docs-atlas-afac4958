@@ -1,0 +1,345 @@
+---
+title: "Learning System"
+description: "How CareSupport learns from corrections and improves over time"
+---
+
+CareSupport is part of a learning system. Conversations are reviewed, corrections are captured, and lessons are promoted into permanent instructions. Here's how it works.
+
+## Learning Architecture
+
+<Steps>
+  <Step title="Conversations happen">
+    The agent responds to messages using its current context (SOUL.md, skills, lessons.md).
+  </Step>
+  
+  <Step title="Self-corrections are captured">
+    When a user corrects the agent, it records the correction in the `self_corrections` field. This is written to the family's `lessons.md` immediately — you see it in context on the next message.
+  </Step>
+  
+  <Step title="Review process analyzes behavior">
+    `review_loop.py` reads conversation logs and checks agent behavior against skill guidance. It produces findings and lesson recommendations.
+  </Step>
+  
+  <Step title="Lessons are promoted">
+    Approved lessons are promoted to `lessons.md` (global) or `families/{id}/lessons.md` (family-specific). These are loaded into every future prompt.
+  </Step>
+</Steps>
+
+<Info>
+From SOUL.md: "The LESSONS sections in your context come from that review process. They aren't rules handed down — they're corrections earned from real conversations."
+</Info>
+
+## lessons.md Format
+
+Lessons are stored as timestamped bullet points with optional category tags:
+
+```markdown
+# Lessons
+<!-- Corrections from conversations. Loaded into every prompt. Max 20 entries. -->
+- [2026-02-26] Liban is Degitu's grandson, not the other way around. Correct this immediately in all future references.
+- [2026-02-26] Don't claim to know family relationships I haven't confirmed. Ask directly instead of inferring.
+- [2026-02-27] Never return an empty sms_response. Every inbound message deserves a reply.
+```
+
+### Lesson Categories
+
+The system recognizes three categories (optional tags):
+
+<Tabs>
+  <Tab title="[behavioral]">
+    How to communicate, when to ask, how to handle corrections.
+    
+    **Example:** "One question per response, always. Never stack multiple questions."
+  </Tab>
+  
+  <Tab title="[factual]">
+    Facts about this family: relationships, preferences, context.
+    
+    **Example:** "Liban is Degitu's grandson. Degitu is Liban's aunt (Roman's sister)."
+  </Tab>
+  
+  <Tab title="[operational]">
+    System capabilities, technical constraints, process gaps.
+    
+    **Example:** "Outreach is queued, not instant — say 'I'll message [name]' not 'I'm messaging [name] now.'"
+  </Tab>
+</Tabs>
+
+### Eviction Strategy
+
+When lessons exceed the max (default: 20 for review output, 30 for family files), the system uses **category-aware eviction**:
+
+- Oldest entries are removed first
+- Each category is guaranteed at least 1 slot
+- Slots are distributed proportionally to how many entries each category has
+
+This preserves diversity — the agent doesn't lose all behavioral guidance just because it learned many factual corrections.
+
+## Self-Corrections
+
+When the agent is corrected in conversation, it uses the `self_corrections` field in its JSON response:
+
+```json
+{
+  "sms_response": "Got it — Degitu is your aunt, not grandmother. I've corrected that.",
+  "self_corrections": [
+    "Degitu is Liban's aunt (Roman's sister), not his grandmother. When Liban says 'she is my aunt,' accept it and move forward."
+  ]
+}
+```
+
+The system writes this to `families/kano/lessons.md` immediately. The agent sees it in context on the next message.
+
+<Info>
+**Why this matters:** The agent doesn't have to wait for a review cycle to learn from direct corrections. Self-corrections create an instant feedback loop.
+</Info>
+
+## Review Loop: Mechanical Tier
+
+`review_loop.py` performs rule-based analysis on recent conversations:
+
+### What It Checks
+
+<Accordion title="Multi-question violations">
+  Detects responses with more than one question mark. 
+  
+  **Skill violated:** social.md says "One question at a time, always."
+  
+  **Lesson generated:** "One question per response, always. Never stack multiple questions in a single message."
+</Accordion>
+
+<Accordion title="Forbidden phrases">
+  Detects phrases like:
+  - "before I can proceed"
+  - "before I save"
+  - "before I can help"
+  - "I need to know"
+  
+  **Skill violated:** social.md says "Never say 'before I can proceed' — proceed with what you have."
+  
+  **Lesson generated:** "Never say '[phrase]'. Act on available information per social.md."
+</Accordion>
+
+<Accordion title="User feedback patterns">
+  Detects corrections in user messages:
+  - "that's wrong" / "that's not right" / "incorrect"
+  - "don't do that" / "stop doing" / "never do"
+  - "I told you" / "I already said"
+  
+  Flags these for deeper analysis (not auto-corrected).
+</Accordion>
+
+<Accordion title="Response length">
+  Flags responses over 500 characters. Recommendation: "Keep SMS responses under 320 chars (2 segments) when possible."
+</Accordion>
+
+### Usage
+
+```bash
+# Review last 24 hours
+python review_loop.py --since 24h
+
+# Review specific family with full transcript
+python review_loop.py --since 24h --family kano --full
+
+# Output as JSON for programmatic use
+python review_loop.py --since 2h --json --full
+
+# Stage findings without mutating real files
+python review_loop.py --since 3h --family kano --full --stage
+```
+
+<Info>
+Without `--stage`, every run writes lessons to real files. `--stage` writes to a scratch pad (`staging/reviews/`) instead. Nothing touches production until explicitly promoted.
+</Info>
+
+## Review Loop: Contextual Tier
+
+The mechanical tier catches rule violations. The contextual tier needs a human (or Opus) reading the full transcript:
+
+### What Mechanical Analysis Misses
+
+- Agent calling Degitu both "grandmother" and "aunt" in the same response
+- Missing member context that caused the confusion
+- Agent contradicting itself across messages
+- Flows that have no protocol
+- Process gaps nobody thought to codify
+
+### Workflow
+
+<Steps>
+  <Step title="Run with --full --stage">
+    ```bash
+    python review_loop.py --since 3h --family kano --full --stage
+    ```
+    
+    This writes findings + full transcript to `staging/reviews/{timestamp}.json`.
+  </Step>
+  
+  <Step title="Review the transcript">
+    Read the exchanges. Look for:
+    - Contradictions
+    - Missing context that caused errors
+    - Patterns the agent should follow but doesn't
+  </Step>
+  
+  <Step title="Save interesting reviews">
+    ```bash
+    python review_staging.py save --family kano --review 2026-02-26_063623 --name family-tree-confusion
+    ```
+    
+    Moved to `staging/saved/` — survives resets, becomes material for deeper analysis.
+  </Step>
+  
+  <Step title="Promote approved lessons">
+    ```bash
+    python review_staging.py promote --family kano --review 2026-02-26_061700 --items 0,1
+    ```
+    
+    Writes selected lessons to `families/kano/lessons.md`. This is the one-way door — the only moment real files change.
+  </Step>
+</Steps>
+
+## Staging Workflow
+
+Without staging, every `review_loop` run writes lessons to real files. Testing = mutating production data. Staging is a scratch pad — nothing touches production until you explicitly promote it.
+
+### Three Piles
+
+<Tabs>
+  <Tab title="reviews/">
+    **Disposable test output.** Accumulates with each `--stage` run. Cleared on reset. You don't care about most of these.
+  </Tab>
+  
+  <Tab title="saved/">
+    **Curated material.** Reviews you flagged as worth revisiting. Survives resets. This is Opus's reading pile when it writes proposals.
+  </Tab>
+  
+  <Tab title="proposals/">
+    **Where Opus writes back.** (Future use.)
+  </Tab>
+</Tabs>
+
+### Testing Protocol
+
+<Steps>
+  <Step title="Setup (once per session)">
+    ```bash
+    python review_staging.py snapshot --family kano
+    ```
+    
+    Locks baseline — this is your safety net.
+  </Step>
+  
+  <Step title="Test loop (repeat as needed)">
+    ```bash
+    # Run tests (accumulates in reviews/)
+    python review_loop.py --since 3h --family kano --full --stage
+    
+    # See what you got
+    python review_staging.py list --family kano
+    
+    # Verify live files untouched
+    python review_staging.py diff --family kano
+    
+    # Flag interesting ones
+    python review_staging.py save --family kano --review {ts} --name family-tree-confusion
+    
+    # Restore baseline + clear reviews/ (saved/ untouched)
+    python review_staging.py reset --family kano
+    ```
+    
+    Then iterate. Change the agent, run more tests, save what's interesting, reset, repeat.
+  </Step>
+  
+  <Step title="Promote (one-way door)">
+    ```bash
+    python review_staging.py promote --family kano --review {ts} --items 0,1
+    ```
+    
+    Pushes approved lessons to production. This is the only moment real files change.
+  </Step>
+</Steps>
+
+<Info>
+**Resist the shiny object.** During testing you WILL notice gaps — missing member fields, flows with no protocol, features that seem obvious. DO NOT stop testing to build them. Save the observation to `saved/` and keep going. Real interactions reveal what the abstraction needs to be.
+</Info>
+
+## Graduation Pipeline
+
+Lessons in `lessons.md` are temporary — they're meant to graduate to permanent locations:
+
+- **Factual lessons** → `family.md` or `members/{name}.md`
+- **Behavioral lessons** → `skills/social.md` or `skills/scheduling.md`
+- **Operational lessons** → `capabilities.md`
+
+### Workflow
+
+```bash
+# Classify lessons and generate proposal
+python review_staging.py graduate --family kano
+
+# Review output, then merge approved items
+python review_staging.py merge --family kano --graduation 2026-02-28_210000 --items 0,2,5
+```
+
+See [Review Process](/agent/review-process#graduation-pipeline) for details.
+
+## Max Entries
+
+- **Global lessons.md:** 50 entries (configurable in `learning/__init__.py`)
+- **Family lessons.md:** 30 entries (set in `append_lessons()` calls)
+- **Review output:** 20 entries (prevents prompt bloat)
+
+When the cap is reached, category-aware eviction removes oldest entries while preserving diversity.
+
+## Example: Real Correction Flow
+
+<Steps>
+  <Step title="User corrects agent">
+    **User:** "Degitu is my aunt, not my grandmother."
+    
+    **Agent response JSON:**
+    ```json
+    {
+      "sms_response": "Got it — Degitu is your aunt. I've corrected that.",
+      "self_corrections": [
+        "Degitu is Liban's aunt (Roman's sister), not his grandmother. When Liban says 'she is my aunt,' accept it and move forward."
+      ]
+    }
+    ```
+  </Step>
+  
+  <Step title="System writes to lessons.md">
+    `sms_handler.py` processes the response and calls:
+    ```python
+    append_lessons(family_lessons_path, response.self_corrections)
+    ```
+    
+    Result in `families/kano/lessons.md`:
+    ```markdown
+    - [2026-02-26] Degitu is Liban's aunt (Roman's sister), not his grandmother. When Liban says 'she is my aunt,' accept it and move forward.
+    ```
+  </Step>
+  
+  <Step title="Agent sees it next message">
+    The next time Liban sends a message, the system prompt includes:
+    ```markdown
+    ## Lessons
+    - [2026-02-26] Degitu is Liban's aunt (Roman's sister), not his grandmother. When Liban says 'she is my aunt,' accept it and move forward.
+    ```
+    
+    The agent now knows not to call Degitu "grandmother" again.
+  </Step>
+</Steps>
+
+## Signal Sources
+
+The review loop ingests signals from multiple sources:
+
+- **Conversation logs** (`runtime/conversations/{phone}/*.log`) — INBOUND→OUTBOUND pairs
+- **PHI audit logs** — blocked responses, unknown numbers
+- **Pending approvals** — stale approvals >18h old
+- **Poller stdout** — errors and warnings from the message polling loop
+
+These are combined into a unified timeline for analysis.

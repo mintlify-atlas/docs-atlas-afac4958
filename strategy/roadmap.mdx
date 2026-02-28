@@ -1,0 +1,438 @@
+---
+title: Product Roadmap
+description: Product roadmap, phases, and scaling challenges
+---
+
+# Product Roadmap
+
+## Current State (2026-02-26)
+
+CareSupport runs as a **single-family pilot (Kano family)**. One care recipient (Degitu), one registered member (Liban), SMS via Linq/iMessage. Files are the database. No self-service onboarding. No multi-family routing beyond directory scanning.
+
+<CardGroup cols={2}>
+  <Card title="What's Proven" icon="check" color="#00A67E">
+    - 13-step SMS pipeline works end-to-end
+    - Approval gating blocks sensitive changes until confirmed
+    - PHI filtering, role-based access, audit logging all mechanical
+    - Family.md + member profiles update through conversation
+    - Outreach queuing (needs_outreach → Linq create_chat) works
+  </Card>
+  <Card title="What's Broken" icon="exclamation-triangle" color="#F59E0B">
+    - Agent asks excessive clarifying questions instead of acting on clear input
+    - 6 family members listed with phone numbers → 0 added to routing.json
+    - Pending approval for care recipient update → user hasn't been prompted to confirm
+    - No per-family learning — corrections are global only
+    - Relationship context stored as single field (to care recipient), not member-to-member
+  </Card>
+</CardGroup>
+
+---
+
+## Implementation Strategy: Land → Pro → Agency
+
+**The Expansion Sequence:** Land with Family → pull in Pro via invites → bring in Agency with shared-timeline proof. Seed each step with **clear wins**.
+
+<Steps>
+  <Step title="Phase 1: Land with Family">
+    Prove coordination value inside a single **Family Circle**
+  </Step>
+  <Step title="Phase 2: Pull in Pro">
+    Enable a professional to coordinate **multi-family work** while plugging into the family's Circle
+  </Step>
+  <Step title="Phase 3: Bring in Agency">
+    Demonstrate value to the agency **without heavy integration**
+  </Step>
+</Steps>
+
+---
+
+## Phase 0: Fix the Pilot (Now)
+
+### Goal
+
+Make the Kano family work properly before scaling anything.
+
+<CardGroup cols={2}>
+  <Card title="Conversation Skills" icon="comments">
+    **What:** Add `skill.md` — social skills that guide conversation flow
+    
+    **Why:** Agent should prompt "Want me to invite them?" after receiving member list, not ask 3 more clarifying questions
+  </Card>
+  <Card title="Context Prioritization" icon="list-ol">
+    **What:** Define mandatory vs optional fields in family.md and member.md
+    
+    **Why:** Agent wastes turns asking for blood type when it should be saving the 6 phone numbers it already has
+  </Card>
+  <Card title="Per-Family Lessons" icon="graduation-cap">
+    **What:** Add `families/{id}/lessons.md` — local corrections
+    
+    **Why:** "Degitu prefers Auntie" shouldn't leak to other families; "always confirm before adding members" should be global
+  </Card>
+  <Card title="Resolve Pending State" icon="circle-check">
+    **What:** Clear the pending approval backlog, add the 6 family members
+    
+    **Why:** The pilot is stuck because the agent over-gated a straightforward update
+  </Card>
+</CardGroup>
+
+---
+
+## Phase 1: Land with Family (Rob's Network)
+
+### Timeline: 0–30 Days
+
+**Goal:** Prove NHS lift in a real **Family Network (Rob + Marta)**, then expand **Pro → Agency** with clear wins.
+
+### Setup
+
+- Create **Family Circle**
+- Set Policy Pack `Family.Pro-Integrated`
+- Set coverage window
+- Import calendars
+- Invite close supporters
+
+### Quick Wins (≤7 days)
+
+<CardGroup cols={2}>
+  <Card title="Baseline Metrics" icon="chart-simple">
+    Baseline **Network Health Score (NHS)** auto-generated
+  </Card>
+  <Card title="First Gap Alert" icon="triangle-exclamation">
+    First **gap alert** detected and resolved
+  </Card>
+  <Card title="First Handoff" icon="hand-holding-medical">
+    **Handoff summary** captured at least once
+  </Card>
+  <Card title="Coverage Improvement" icon="chart-line">
+    **Coverage %** +10pp vs. baseline OR **gap minutes/week** −20%
+  </Card>
+</CardGroup>
+
+### Features to Emphasize
+
+- Today/Timeline view
+- Task management
+- Schedule conflict detection
+- Availability rules
+- Handoff summaries
+
+### Complete Single-Family Depth
+
+| Item | Success Metric |
+|------|----------------|
+| **All members registered** | 7/7 people in routing.json with profiles; all can text CareSupport and get context-aware responses |
+| **Transportation schedule** | Mon–Fri pickup/dropoff in family.md This Week section; schedule populated, visible to drivers |
+| **First outreach** | CareSupport texts Solan or Yada about a shift; outreach sent, reply received, logged |
+| **First handoff** | Driver change captured and next driver notified; handoff summary in timeline |
+| **NHS baseline** | Network Health Score v0 calculated; Coverage %, gap minutes, time-to-fill measurable |
+
+<Note>
+**Trigger to Phase 2:** Uncovered hours >15% OR recurring tasks require pro skills → **Invite a Pro** nudge.
+</Note>
+
+---
+
+## Phase 2: Pull in Pro via Invites (CareGiver OS)
+
+### Timeline: 31–60 Days
+
+**Goal:** Enable a professional to coordinate **multi-family work** while plugging into the family's Circle.
+
+### Flow
+
+<Steps>
+  <Step title="Family Invites">
+    Family → Invite Pro (SMS/email)
+  </Step>
+  <Step title="Pro Joins">
+    Pro joins **CareGiver OS** → sets availability
+  </Step>
+  <Step title="Receives Assignments">
+    Pro receives assignments → logs sessions
+  </Step>
+  <Step title="Sends Summaries">
+    Pro sends visit summaries → family sees in Timeline
+  </Step>
+</Steps>
+
+### Quick Wins (≤7 days)
+
+<CardGroup cols={2}>
+  <Card title="First Session Logged" icon="clipboard-check">
+    First **session logged & summarized**; family sees it in Timeline
+  </Card>
+  <Card title="Fast Gap Fill" icon="clock">
+    **Time-to-fill** for next gap < 24h
+  </Card>
+  <Card title="Adherence Improvement" icon="pills">
+    **Adherence** improvement for at least one med/appointment
+  </Card>
+  <Card title="First Payout" icon="money-bill">
+    Pro issues first **invoice/payout**
+  </Card>
+</CardGroup>
+
+### Incentives
+
+- 14-day Pro trial
+- Referral credit
+- "Verified Pro Profile"
+
+### Multi-Family Architecture
+
+Make the system capable of running 2+ families without operator intervention.
+
+| Item | Challenge |
+|------|----------|
+| **Family creation CLI** | `python scripts/create_family.py --name "tefera" --coordinator "+1..."` — Seed routing.json, family.md, member profile from templates |
+| **SMS self-service signup** | New number texts in → "Start a care network" flow — Need to distinguish new family vs existing member on unknown number |
+| **Cross-family isolation** | One member in 2 families (e.g., caregiver serves multiple) — routing.json currently maps phone → one family. Need multi-family resolution |
+| **Global lesson graduation** | Local lesson appears in 2+ families → promote to global — Need a review mechanism, not automatic (family-specific context could be wrong globally) |
+
+<Note>
+**Trigger to Phase 3:** Pro/Family references an agency OR backup staffing need emerges → **Share Timeline with Agency** prompt.
+</Note>
+
+---
+
+## Phase 3: Bring in Agency via Shared-Timeline Proof
+
+### Timeline: 61–90 Days
+
+**Goal:** Demonstrate value to the agency **without heavy integration**.
+
+### Flow
+
+<Steps>
+  <Step title="Invite Agency">
+    Invite agency coordinator → **Linked Circle** view (read/write per policy)
+  </Step>
+  <Step title="Minimal Adapter">
+    Minimal adapter (CSV/ICS/API lite) → shifts appear in family view
+  </Step>
+  <Step title="Incident Routing">
+    Incidents route back to agency coordinator
+  </Step>
+  <Step title="Measure NHS Lift">
+    Agency sees **NHS lift** and **handoff quality** metrics
+  </Step>
+</Steps>
+
+### Quick Wins (≤14 days)
+
+<CardGroup cols={2}>
+  <Card title="Reduced Calls" icon="phone-slash">
+    **Coordinator calls/emails** reduced for that family
+  </Card>
+  <Card title="Better Coverage" icon="shield-check">
+    **Coverage %** up; **support tickets** down
+  </Card>
+  <Card title="NHS Improvement" icon="arrow-trend-up">
+    Agency sees **NHS lift** and **handoff quality** metrics
+  </Card>
+  <Card title="Next Steps" icon="forward">
+    Offer deeper adapters (HR/payroll/EVV) based on demonstrated ROI
+  </Card>
+</CardGroup>
+
+### Pro Integration Features
+
+| Feature | Description |
+|---------|-------------|
+| **Pro invite flow** | Family coordinator invites pro → pro joins with scoped access |
+| **Multi-family dashboard** | Pro sees schedule across families they serve |
+| **Session logging** | Pro logs visits, family sees summaries in timeline |
+| **Availability rules** | Pro sets hours, system prevents invalid assignments |
+
+---
+
+## Exit Criteria (90 Days)
+
+<CardGroup cols={3}>
+  <Card title="Family NHS" icon="house-heart" color="#00A67E">
+    NHS ≥ **+10** over baseline and sustained 2+ weeks
+  </Card>
+  <Card title="Pro Retention" icon="user-nurse" color="#00A67E">
+    30-day retention ≥ **70%**; ≥ **80%** sessions with handoffs
+  </Card>
+  <Card title="Agency Impact" icon="building" color="#00A67E">
+    Pilot demonstrates measurable reductions in calls/tickets
+  </Card>
+</CardGroup>
+
+---
+
+## KPI Ladder by Stage
+
+### Phase 1: Family
+
+- **NHS Delta:** Improvement over baseline
+- **Gap minutes ↓:** Reduction in uncovered time per week
+- **Time-to-first-resolution:** Speed of gap closure
+- **# helpers activated:** Number of team members actively using system
+
+### Phase 2: Pro
+
+- **Time-to-first-session:** Speed from invite to first logged session
+- **% visits with handoffs:** Quality of care continuity
+- **Pro 30-day retention:** Stickiness of CareGiver OS
+- **Invoice cycle time:** Business operations efficiency
+
+### Phase 3: Agency
+
+- **Linked clients count:** Number of families connected
+- **Support contacts ↓:** Reduction in coordinator burden
+- **Coverage % ↑:** Improvement in shift coverage
+- **NPS lift:** Partner satisfaction improvement
+
+---
+
+## Scaling Challenges
+
+### Challenge 1: Scaling Families
+
+<Accordion title="Problem & Constraints">
+  **Problem:** Every new family requires manual directory creation, routing.json seeding, family.md templating, first-message-via-Linq to establish chat_id. This is 6 manual steps that require operator knowledge.
+
+  **Why it's hard:**
+  - Phone number is the primary key, but one person can be in multiple families
+  - Chat_id (Linq's UUID) is only known after first message — chicken-and-egg
+  - Template family.md has sections that may not apply to every family (not everyone tracks medications)
+  - No rollback if onboarding fails halfway
+
+  **Constraints:**
+  - Must work over SMS (no web UI for onboarding)
+  - Must preserve file-as-database architecture (no external DB)
+  - Must maintain approval gating for sensitive data from day one
+</Accordion>
+
+<Accordion title="Proposed Approach">
+  1. **CLI tool first** (operator-assisted, Phase 2)
+  2. **SMS self-service second** (fully automated, Phase 2 stretch)
+  3. **Web dashboard third** (Phase 3+, only if needed)
+</Accordion>
+
+### Challenge 2: Context Explosion
+
+<Accordion title="Problem & Approach">
+  **Problem:** As families grow, the amount of context loaded per message grows. family.md Current section has a 2000-token soft limit, but with 7+ members, active medications, and weekly schedules, it'll exceed that.
+
+  **Why it's hard:**
+  - Every message loads Current section in full
+  - Agent needs enough context to be useful but not so much it hallucinates
+  - Different messages need different context (schedule question vs medication question)
+
+  **Proposed approach:** Mandatory/optional framework and intent-based context loading.
+</Accordion>
+
+### Challenge 3: Conversation Quality at Scale
+
+<Accordion title="Problem & Approach">
+  **Problem:** CareSupport's conversation quality depends on prompt engineering in SOUL.md + capabilities.md. As we add families with different dynamics, a single prompt may not generalize.
+
+  **Why it's hard:**
+  - Each family has different communication norms
+  - Some families are terse, some are verbose
+  - Cultural context matters (naming conventions, family structure, communication expectations)
+  - Global lessons from one family may not apply to another
+
+  **Proposed approach:** Per-family `skill.md` for conversation patterns + per-family `lessons.md` for corrections. Global lessons only for universal patterns.
+</Accordion>
+
+---
+
+## Network Health Metrics
+
+### North Star: Network Health Score (NHS)
+
+**Definition:** Single score per network to prove coordination value
+
+<CardGroup cols={3}>
+  <Card title="Coverage %" icon="percent">
+    Percentage of target coverage window actually covered
+  </Card>
+  <Card title="Gap Minutes" icon="clock">
+    Total uncovered minutes per week
+  </Card>
+  <Card title="Time-to-Fill" icon="hourglass">
+    Median time from gap detection to resolution
+  </Card>
+  <Card title="Adherence" icon="check-double">
+    Medication and appointment adherence rates
+  </Card>
+  <Card title="Handoff Quality" icon="hand-holding-heart">
+    Percentage of shifts with proper handoff documentation
+  </Card>
+  <Card title="Coordination Time" icon="clock-rotate-left">
+    Coordinator time saved on scheduling and follow-ups
+  </Card>
+</CardGroup>
+
+### Product KPIs
+
+- **NHS delta over baseline:** Primary success metric
+- **Network NPS (coordination lead view):** Satisfaction measurement
+- **CareGiver OS retention:** Professional stickiness
+- **Partner retention (platform/agency):** B2B success
+
+---
+
+## Technology Roadmap
+
+### Now: Lighthouse Pilot
+
+- Coverage workspace
+- Gap/conflict detection
+- Handoffs
+- Availability rules
+- **Decision trace capture**
+
+### Next: Multi-Family Operations
+
+- Ranked proposals
+- Fairness heatmaps
+- Opt-in automations
+- **Precedent search UI**
+
+### Later: Advanced Capabilities
+
+- External calendar & wearable signals
+- Proactive "coverage health" alerts
+- Community routing
+- **Simulation queries**
+
+---
+
+## Risks & Mitigations
+
+| Risk | Why It Matters | Mitigation |
+|------|----------------|------------|
+| **Cold start in multi-sided network** | Need families *and* pros *and* partners | Stage GTM; seed Family Hubs; recruit pros via value props; pilot partners |
+| **Integration friction** | Agencies/marketplaces are busy, legacy stacks | Provide adapters, playbooks, commercial incentives (retention/NPS lift) |
+| **Compliance variability by state** | Product behavior must adapt | Policy graph + jurisdiction packs; local counsel & templates |
+| **Perception as competitor** | Partners may fear overlap | Strict neutral posture; published interoperability charter; white-label options |
+| **Data trust & privacy** | Must be trusted by families and pros | Transparent controls, consent receipts, minimal data exposure by default |
+
+---
+
+## Strategic FAQ
+
+<Accordion title="How are you different?">
+  We equip each care network with network-specific infrastructure (Circle + Policy Pack) and prove value via a **Network Health Score**. We expand **Land → Pro → Agency** with clear wins at each step.
+</Accordion>
+
+<Accordion title="Are you a marketplace?">
+  No. We're the **coordination layer** used **after** the match and **during** the relationship. Families, independent pros, agencies, and platforms each get tools tuned to their network.
+</Accordion>
+
+<Accordion title="Why CareGiver OS?">
+  It elevates independent caregivers into technology-enabled professionals who can **run multi-family practices**, while linking cleanly into family circles and agency views.
+</Accordion>
+
+<Accordion title="What's the business model?">
+  B2C (Family), B2Pro (CareGiver OS), B2B (Agency), plus Platform APIs. All mapped to demonstrated NHS improvements.
+</Accordion>
+
+<Accordion title="Why will networks adopt this?">
+  Measurable NHS lift (fewer gaps, faster fills, better handoffs), reduced coordination burden, and simple adapters (CSV/ICS/API-lite) with a path to deeper integrations.
+</Accordion>

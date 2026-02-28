@@ -1,0 +1,222 @@
+---
+title: "Onboarding New Families"
+description: "Set up a new family in CareSupport and establish their care coordination network"
+---
+
+## Overview
+
+Onboarding a new family involves creating their directory structure, configuring phone routing, setting up member profiles, and establishing initial communication. Each family is a self-contained workspace under `fork/workspace/families/`.
+
+<Note>
+  The `family_id` becomes the directory name (e.g., `kano`) and is used throughout the system to identify this care network.
+</Note>
+
+## Directory Structure
+
+Each family follows a consistent structure:
+
+```
+fork/workspace/families/
+└── {family_id}/
+    ├── routing.json          # Phone → member mapping (runtime reads this)
+    ├── family.md             # Family operational state (schedule, meds, events)
+    └── members/
+        └── {name}.md         # Individual member profile
+```
+
+### Key Files
+
+<ParamField path="routing.json" type="file" required>
+  Maps phone numbers to family members. The runtime uses this to identify who's texting and what access level they have.
+</ParamField>
+
+<ParamField path="family.md" type="file" required>
+  Central care coordination document containing care recipient info, care team roster, schedule, medications, and operational notes. Split into **Current** (always loaded) and **Reference** (loaded on demand) sections.
+</ParamField>
+
+<ParamField path="members/{name}.md" type="file" required>
+  Individual member profiles that personalize agent interactions. Starts sparse and grows through conversation.
+</ParamField>
+
+## Onboarding Steps
+
+<Steps>
+  <Step title="Create Family Directory">
+    Create the directory structure for the new family:
+    
+    ```bash
+    mkdir -p fork/workspace/families/{family_id}/members
+    ```
+    
+    Choose a meaningful `family_id` (typically last name in lowercase, e.g., `kano`).
+  </Step>
+
+  <Step title="Create routing.json">
+    Set up phone number mapping with at least one member (typically the primary caregiver):
+    
+    ```json
+    {
+      "family_id": "kano",
+      "members": {
+        "+16517037981": {
+          "name": "Liban",
+          "role": "primary_caregiver",
+          "access_level": "full",
+          "active": true
+        }
+      },
+      "care_recipient": "Degitu",
+      "status": "active",
+      "created": "2026-02-25",
+      "notes": "Cold start. All care details to be learned through conversation."
+    }
+    ```
+    
+    <Note>
+      The `chat_id` field is populated automatically after the first message exchange. Leave it empty during initial setup.
+    </Note>
+  </Step>
+
+  <Step title="Create family.md from Template">
+    Use the template at `fork/workspace/families/template/family.md` to create the family's operational document:
+    
+    ```bash
+    cp fork/workspace/families/template/family.md \
+       fork/workspace/families/{family_id}/family.md
+    ```
+    
+    Update the frontmatter with family-specific details:
+    
+    ```yaml
+    ---
+    family_id: "kano"
+    created: "2026-02-25"
+    last_updated: "2026-02-25T00:00:00Z"
+    primary_caregiver: "+16517037981"
+    care_recipient: "Degitu"
+    status: active
+    ---
+    ```
+  </Step>
+
+  <Step title="Create Member Profiles">
+    Create a profile for each member in routing.json:
+    
+    ```markdown
+    # Liban Kano — Member Profile
+    
+    ## Identity
+    - Name: Liban Kano
+    - Phone: +16517037981
+    - Role: Primary caregiver, family coordinator
+    - Relationship to care recipient: Grandson
+    - Access level: full
+    
+    ## Communication Preferences
+    <!-- Learned through interaction — not pre-loaded -->
+    - Preferred channel: iMessage
+    - Language:
+    - Response time expectations:
+    - Preferred notification hours:
+    
+    ## Care Responsibilities
+    <!-- What this person handles day-to-day — learned through conversation -->
+    
+    ## Personal Context
+    <!-- Context that helps CareSupport be human, not clinical -->
+    
+    ## Interaction History
+    - 2026-02-25: Profile created. Cold start — all details to be learned.
+    ```
+    
+    <Warning>
+      Profiles are intentionally sparse at creation. The runtime agent fills them in via the `member_updates` field in its JSON response schema.
+    </Warning>
+  </Step>
+
+  <Step title="Establish Initial Chat">
+    Send an initial message via Linq CLI to establish the `chat_id`:
+    
+    ```bash
+    python runtime/scripts/linq_gateway.py create \
+      --to "+16517037981" \
+      --body "Welcome to CareSupport! I'm here to help coordinate care for your family." \
+      --service iMessage
+    ```
+    
+    The command will return a `chat_id` (UUID format).
+  </Step>
+
+  <Step title="Update routing.json with chat_id">
+    Add the returned `chat_id` to the member's entry in routing.json:
+    
+    ```json
+    {
+      "+16517037981": {
+        "name": "Liban",
+        "role": "primary_caregiver",
+        "access_level": "full",
+        "active": true,
+        "chat_id": "1965f2b5-c5e6-4a08-80e9-9224b8a20d88"
+      }
+    }
+    ```
+  </Step>
+</Steps>
+
+## Phone Resolution Flow
+
+When a message arrives, the system resolves the sender:
+
+```
+1. poll_inbound.py receives message with from_phone and chat_id
+2. Calls handle_sms(from_phone, body, service=service)
+3. handle_sms → resolve_member(chat_id, phone)
+   a. First tries resolve_chat_id() — scans routing files for matching chat_id
+   b. Falls back to resolve_phone() — scans routing files for matching phone
+4. If resolved → loads family.md, member profile, builds system prompt
+5. If NOT resolved → logs "Unknown phone" and skips
+```
+
+<Note>
+  The `chat_id` resolution is preferred because phone numbers can change or be shared. Always establish `chat_id` for reliable member identification.
+</Note>
+
+## Cold Start Philosophy
+
+CareSupport uses a "cold start" approach for new families:
+
+- Minimal data entry during onboarding
+- Care details learned naturally through conversation
+- Agent updates profiles and family.md via `member_updates` field
+- Reduces upfront friction and captures real-world context
+
+<Warning>
+  Do NOT pre-populate extensive details in member profiles or family.md. Let the agent learn through interaction to ensure accuracy and reduce coordinator burden.
+</Warning>
+
+## Verification Checklist
+
+After onboarding, verify:
+
+- [ ] Directory structure exists: `families/{family_id}/members/`
+- [ ] `routing.json` has at least one member with valid phone
+- [ ] `family.md` has correct frontmatter (family_id, primary_caregiver)
+- [ ] Member profile(s) created in `members/` directory
+- [ ] Initial message sent and `chat_id` obtained
+- [ ] `chat_id` added to member's routing.json entry
+- [ ] Member can send/receive messages successfully
+
+## Next Steps
+
+<Card title="Add Family Members" icon="users" href="/families/member-management">
+  Learn how to add additional family members, caregivers, and supporters to the care team.
+</Card>
+
+<Card title="Configure Phone Routing" icon="phone" href="/families/routing-configuration">
+  Deep dive into routing.json schema and phone number mapping.
+</Card>
+
+<Card title="Set Access Controls" icon="shield" href="/families/access-control">
+  Configure role-based access levels to protect sensitive information.
+</Card>

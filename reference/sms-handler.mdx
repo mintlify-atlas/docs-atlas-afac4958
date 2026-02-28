@@ -1,0 +1,334 @@
+---
+title: SMS Handler Pipeline
+description: 13-step message processing pipeline with enforcement gates
+---
+
+The SMS handler is the core message processing pipeline that orchestrates phone resolution, context filtering, AI response generation, and enforcement checks.
+
+## Pipeline Overview
+
+Every inbound SMS flows through 13 sequential steps:
+
+1. **Phone Resolution** — Map phone number to family → member → role → access level
+2. **Context Loading** — Load `family.md`, conversation history, member profile
+3. **Pre-Filter (Enforcement)** — Strip restricted sections by access level
+4. **PHI Audit** — Log context access with WHO/WHAT/WHEN/WHY
+5. **AI Generation** — Call agent with filtered context
+6. **Post-Check (Enforcement)** — Scan response for PHI leakage
+7. **Persistence** — Apply `family_file_updates` (backup → edit → validate)
+8. **Logging** — Record interaction in conversation timeline
+9. **Response Return** — Return SMS text + metadata to caller
+
+Additional optional steps:
+- **Approval Gating** — High-risk edits require YES/NO confirmation
+- **Outreach** — Send messages to other team members
+- **Learning** — Persist corrections to `lessons.md`
+- **Routing Updates** — Add new family members
+
+## Entry Point
+
+```python
+async def handle_sms(
+    from_phone: str,
+    body: str,
+    dry_run: bool = False,
+    service: str = "SMS"
+) -> dict
+```
+
+<ParamField path="from_phone" type="string" required>
+  Sender phone number in E.164 format (e.g., `+16517037981`)
+</ParamField>
+
+<ParamField path="body" type="string" required>
+  SMS message text from the sender
+</ParamField>
+
+<ParamField path="dry_run" type="boolean" default="false">
+  If `true`, runs resolution and context assembly without calling the AI. Returns metadata for testing.
+</ParamField>
+
+<ParamField path="service" type="string" default="SMS">
+  Transport service type: `"SMS"`, `"iMessage"`, or `"RCS"`. Affects agent tone and confirmation mechanics.
+</ParamField>
+
+### Return Value
+
+<ResponseField name="success" type="boolean">
+  Whether the handler completed successfully
+</ResponseField>
+
+<ResponseField name="response" type="string">
+  SMS text to send back to the user
+</ResponseField>
+
+<ResponseField name="needs_outreach" type="array">
+  List of outreach messages to send to other team members
+  <expandable>
+    <ResponseField name="phone" type="string">
+      Recipient phone (E.164)
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Recipient name
+    </ResponseField>
+    <ResponseField name="message" type="string">
+      Message text
+    </ResponseField>
+  </expandable>
+</ResponseField>
+
+<ResponseField name="family_file_updates" type="object">
+  Result of applying edits to family.md
+  <expandable>
+    <ResponseField name="success" type="boolean">
+      Whether edits were applied successfully
+    </ResponseField>
+    <ResponseField name="backup_path" type="string">
+      Path to timestamped backup file
+    </ResponseField>
+    <ResponseField name="updates_applied" type="integer">
+      Number of updates successfully applied
+    </ResponseField>
+    <ResponseField name="sections_modified" type="array">
+      List of section keys that were changed
+    </ResponseField>
+  </expandable>
+</ResponseField>
+
+<ResponseField name="member" type="object">
+  Resolved member information
+  <expandable>
+    <ResponseField name="name" type="string">
+      Member name
+    </ResponseField>
+    <ResponseField name="phone" type="string">
+      Phone number
+    </ResponseField>
+    <ResponseField name="role" type="string">
+      Role type (e.g., "family_caregiver", "professional_caregiver")
+    </ResponseField>
+    <ResponseField name="access_level" type="string">
+      Access level ("full", "schedule+meds", "schedule", "provider", "limited")
+    </ResponseField>
+    <ResponseField name="family_id" type="string">
+      Family identifier
+    </ResponseField>
+  </expandable>
+</ResponseField>
+
+<ResponseField name="enforcement" type="object">
+  Enforcement layer metadata
+  <expandable>
+    <ResponseField name="access_level" type="string">
+      Applied access level
+    </ResponseField>
+    <ResponseField name="sections_visible" type="array">
+      Section keys visible to this member
+    </ResponseField>
+    <ResponseField name="context_filtered" type="boolean">
+      Whether context was pre-filtered (always `true` for non-full access)
+    </ResponseField>
+    <ResponseField name="leakage_detected" type="boolean">
+      Whether PHI leakage was detected in response
+    </ResponseField>
+    <ResponseField name="response_blocked" type="boolean">
+      Whether response was blocked due to leakage
+    </ResponseField>
+  </expandable>
+</ResponseField>
+
+## Key Functions
+
+### Phone Resolution
+
+```python
+def resolve_phone(phone: str) -> dict | None
+```
+
+Looks up a phone number across all family routing tables. Returns member data with family context if found.
+
+Location: `runtime/scripts/sms_handler.py:122`
+
+```python
+def resolve_chat_id(chat_id: str) -> dict | None
+```
+
+Preferred for Linq/iMessage: resolves by persistent chat UUID instead of phone number.
+
+Location: `runtime/scripts/sms_handler.py:139`
+
+### Context Loading
+
+```python
+def load_family_context(family_dir: str) -> str
+```
+
+Loads and concatenates `family.md` + `schedule.md` + `medications.md` if they exist.
+
+Location: `runtime/scripts/sms_handler.py:185`
+
+```python
+def load_recent_conversations(phone: str, limit: int = 50) -> str
+```
+
+Reads the last N lines from the member's conversation log.
+
+Location: `runtime/scripts/sms_handler.py:204`
+
+### System Prompt Assembly
+
+```python
+def build_system_context(
+    member: dict,
+    family_context: str,
+    conversation_history: str,
+    service: str = "SMS",
+    member_context: str = ""
+) -> str
+```
+
+Assembles the full system prompt from:
+- `SOUL.md` (agent identity)
+- `agent_root.md` (routing instructions)
+- `capabilities.md` (CAN/CANNOT list)
+- `skills/*.md` (conversation patterns)
+- `lessons.md` (global + per-family corrections)
+- Channel-specific guidance (iMessage vs SMS)
+- Filtered family context
+- Recent conversation history
+
+<Note>
+  **CRITICAL:** The `family_context` passed to this function must already be filtered by `role_filter.filter_family_context()`. The agent only sees what the member is allowed to see.
+</Note>
+
+Location: `runtime/scripts/sms_handler.py:289`
+
+### AI Response Generation
+
+```python
+async def generate_response(
+    system_context: str,
+    user_message: str,
+    member_name: str = "there"
+) -> str
+```
+
+Calls OpenRouter API with structured JSON schema. Returns JSON string with:
+- `sms_response` (text to send)
+- `internal_notes` (agent reasoning)
+- `needs_outreach` (array of outreach messages)
+- `family_file_updates` (edits to apply)
+- `self_corrections` (lessons to persist)
+- `member_updates` (member profile edits)
+- `routing_updates` (new member registrations)
+
+Location: `runtime/scripts/sms_handler.py:487`
+
+### Message Logging
+
+```python
+def log_message(
+    phone: str,
+    direction: str,
+    body: str,
+    family_id: str = ""
+)
+```
+
+Appends to:
+1. `/conversations/{phone}/{YYYY-MM}.log` (per-member timeline)
+2. `/families/{family_id}/timeline/{YYYY-MM}.log` (per-family timeline)
+
+Location: `runtime/scripts/sms_handler.py:236`
+
+## Response Schema
+
+The AI returns structured JSON matching this schema:
+
+```json
+{
+  "sms_response": "Message text to send (required)",
+  "internal_notes": "Agent reasoning (required)",
+  "needs_outreach": [
+    {
+      "phone": "+16514109390",
+      "name": "Marcus",
+      "message": "Liban is asking about tomorrow's schedule"
+    }
+  ],
+  "family_file_updates": [
+    {
+      "section": "schedule",
+      "operation": "append",
+      "content": "- 2026-03-01 08:00: Doctor appointment (Marcus driving)",
+      "old_content": ""
+    }
+  ],
+  "self_corrections": [
+    "[behavioral] Never use 'let me check' — always give the answer or say what's missing"
+  ],
+  "member_updates": [],
+  "routing_updates": []
+}
+```
+
+<Note>
+  All array fields default to `[]`. The schema uses `strict: true` mode, so the AI cannot deviate from this structure.
+</Note>
+
+## Access Levels
+
+Phone resolution returns one of five access levels:
+
+| Level | Sees | Can Approve |
+|-------|------|-------------|
+| `full` | All sections | Yes |
+| `schedule+meds` | Members, schedule, medications, appointments, availability, active issues | No |
+| `schedule` | Members, schedule, availability, active issues | No |
+| `provider` | Care recipient, medications, appointments, members | No |
+| `limited` | Members, care recipient (basic info only) | No |
+
+The enforcement layer (see [Enforcement Layer](/reference/enforcement-layer)) mechanically strips sections not in the allowed list.
+
+## CLI Usage
+
+```bash
+# Dry run (test resolution without AI call)
+python runtime/scripts/sms_handler.py \
+  --from "+16517037981" \
+  --body "Can someone take auntie to work tomorrow at 8am?" \
+  --dry-run
+
+# Full run (calls AI, applies updates)
+python runtime/scripts/sms_handler.py \
+  --from "+16517037981" \
+  --body "Can someone take auntie to work tomorrow at 8am?"
+```
+
+## Error Handling
+
+### Unknown Phone Number
+
+If phone resolution fails:
+- PHI audit logs the unknown number attempt
+- Returns canned response: `"Sorry, this number isn't set up to receive messages..."`
+- Zero PHI disclosed (hard rule)
+
+### AI Timeout/Failure
+
+If the AI call fails after 3 retries:
+- Returns fallback message: `"I hit a technical glitch processing your last message, {name}. Can you send it again?"`
+- Error logged to stderr
+- No edits applied
+
+### Family Lock
+
+All message processing for the same family is serialized via `family_lock(family_id)` to prevent race conditions when two messages arrive simultaneously.
+
+Location: `runtime/enforcement/message_lock.py`
+
+## Related
+
+- [Enforcement Layer](/reference/enforcement-layer) — Role filter, PHI audit, approval gating
+- [Linq Integration](/reference/linq-integration) — iMessage transport layer
+- [Configuration](/reference/configuration) — Paths, API tokens, settings

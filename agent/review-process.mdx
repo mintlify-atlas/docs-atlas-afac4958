@@ -1,0 +1,592 @@
+---
+title: "Review Process & Staging Workflow"
+description: "How conversations are reviewed, lessons are promoted, and changes are tested safely"
+---
+
+CareSupport's agent behavior improves through a two-tier review process: **mechanical checks** catch rule violations automatically, and **contextual review** requires a human (or Opus) reading the full transcript. Staging ensures nothing mutates production data until explicitly approved.
+
+## Two Tiers of Review
+
+<Tabs>
+  <Tab title="Mechanical (review_loop.py)">
+    Catches rule violations automatically:
+    - Multi-question responses
+    - Forbidden phrases ("before I can proceed")
+    - Response length violations
+    - Empty `sms_response` fields
+    
+    **Fast, reliable, limited scope.**
+  </Tab>
+  
+  <Tab title="Contextual (human + Opus)">
+    Requires reading the full transcript:
+    - Agent contradicting itself about family relationships
+    - Missing member context that caused confusion
+    - Flows with no protocol
+    - Process gaps nobody thought to codify
+    
+    **Slow, high-value, unbounded scope.**
+  </Tab>
+</Tabs>
+
+<Info>
+From the review system docs: "The mechanical tier is easy. The contextual tier is where the real value lives — things we didn't know we needed."
+</Info>
+
+## review_loop.py: Mechanical Tier
+
+**File:** `runtime/scripts/review_loop.py` (715 lines)
+
+### What It Does
+
+Ingests multiple signal sources, evaluates agent behavior against skill guidance, and produces lessons + operational alerts.
+
+### Signal Sources
+
+<Accordion title="Conversation logs">
+  **Path:** `runtime/conversations/{phone}/*.log`
+  
+  Pairs INBOUND→OUTBOUND exchanges from recent conversations.
+</Accordion>
+
+<Accordion title="PHI audit logs">
+  **Path:** `runtime/phi_access/{date}.log`
+  
+  Tracks blocked responses (PHI leakage) and unknown numbers.
+</Accordion>
+
+<Accordion title="Pending approvals">
+  **Path:** `families/{id}/pending_approvals.json`
+  
+  Flags stale approvals (>18h old).
+</Accordion>
+
+<Accordion title="Poller stdout">
+  Captures errors and warnings from the message polling loop (tmux session `caresupport`).
+</Accordion>
+
+### Rule Checks
+
+<Steps>
+  <Step title="Multi-question check">
+    Counts `?` characters in `outbound` messages. If >1, generates finding:
+    
+    **Severity:** critical  
+    **Lesson:** "One question per response, always. Never stack multiple questions in a single message."
+  </Step>
+  
+  <Step title="Forbidden phrases check">
+    Scans for:
+    - "before I can proceed"
+    - "before I save"
+    - "before I can help"
+    - "I need to know"
+    
+    **Severity:** critical  
+    **Lesson:** "Never say '[phrase]'. Act on available information per social.md."
+  </Step>
+  
+  <Step title="User feedback check">
+    Detects correction patterns in user messages:
+    - "that's wrong" / "that's not right"
+    - "don't do that" / "stop doing"
+    - "I told you" / "I already said"
+    
+    **Severity:** info (flags for human review, doesn't auto-generate lessons)
+  </Step>
+  
+  <Step title="Response length check">
+    Flags responses >500 characters.
+    
+    **Severity:** info  
+    **Recommendation:** "Keep SMS responses under 320 chars (2 segments) when possible."
+  </Step>
+  
+  <Step title="Stale approvals check">
+    Flags pending approvals >18h old.
+    
+    **Severity:** warning  
+    **Recommendation:** "Resolve or re-send confirmation SMS."
+  </Step>
+  
+  <Step title="PHI blocks check">
+    Flags responses blocked by PHI audit.
+    
+    **Severity:** critical  
+    **Lesson:** "Agent attempted to share restricted information. Review context filtering."
+  </Step>
+</Steps>
+
+### Usage
+
+```bash
+# Review last 24 hours (all families)
+python review_loop.py --since 24h
+
+# Review specific family
+python review_loop.py --since 24h --family kano
+
+# Include full transcript for contextual review
+python review_loop.py --since 24h --family kano --full
+
+# Output as JSON
+python review_loop.py --since 2h --json --full
+
+# Write to staging (no mutation of real files)
+python review_loop.py --since 3h --family kano --full --stage
+
+# Dry-run (show findings without writing lessons)
+python review_loop.py --since 2h --dry-run
+```
+
+### Output Format
+
+<Tabs>
+  <Tab title="Human-readable digest">
+    ```
+    =======================================================
+      CareSupport Review — Last 24h (kano)
+      2026-02-28 14:32 UTC
+    =======================================================
+    
+      3 exchange(s) reviewed
+    
+      🔴 CRITICAL (1)
+      ────────────────────────────────────────
+      Agent asked 2 questions in one response
+        Evidence: What time on Monday? And should I ask Degitu?
+        → Lesson: One question per response, always.
+    
+      📝 LESSONS (1 unique)
+      ────────────────────────────────────────
+      → One question per response, always. Never stack multiple questions.
+    
+      📜 TRANSCRIPT (3 exchanges)
+      ────────────────────────────────────────
+      [14:20:15] USER: Can you check if Solan is available Monday?
+      [14:20:18] AGENT: I'll message Solan about Monday.
+      ...
+    ```
+  </Tab>
+  
+  <Tab title="JSON output (--json)">
+    ```json
+    {
+      "exchange_count": 3,
+      "findings": [
+        {
+          "severity": "critical",
+          "category": "skill_violation",
+          "title": "Agent asked 2 questions in one response",
+          "evidence": "What time on Monday? And should I ask Degitu?",
+          "recommendation": "Follow social.md: one question at a time",
+          "lesson": "One question per response, always."
+        }
+      ],
+      "unique_lessons": [
+        "One question per response, always."
+      ],
+      "lesson_count": 1,
+      "phi_present": true,
+      "exchanges": [
+        {
+          "timestamp": "2026-02-28T14:20:15Z",
+          "user": "Can you check if Solan is available Monday?",
+          "agent": "I'll message Solan about Monday."
+        }
+      ]
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Where Lessons Go
+
+<Info>
+Without `--stage`, lessons are written immediately via `append_lessons()`:
+- **Family-specific:** `families/{id}/lessons.md` (if `--family` specified)
+- **Global:** `runtime/learning/lessons.md` (if no family specified)
+</Info>
+
+With `--stage`, lessons go to `families/{id}/staging/reviews/{timestamp}.json` instead.
+
+## review_staging.py: Staging Workflow
+
+**File:** `runtime/scripts/review_staging.py` (843 lines)
+
+### The Problem
+
+Every `review_loop` run writes lessons directly to real files. Testing = mutating production data. Resetting means deleting real corrections.
+
+### The Fix
+
+A scratch pad. Nothing touches production until you explicitly say "promote this." Only things that survive scrutiny become permanent.
+
+### Three Piles
+
+<Tabs>
+  <Tab title="staging/reviews/">
+    **Disposable test output.** Accumulates with each `--stage` run. Cleared on reset.
+    
+    **Lifecycle:** Short-lived. Most reviews are noise.
+  </Tab>
+  
+  <Tab title="staging/saved/">
+    **Curated material.** Reviews you flagged as worth revisiting. Survives resets.
+    
+    **Lifecycle:** Permanent until promoted or archived. This is Opus's reading pile.
+  </Tab>
+  
+  <Tab title="staging/proposals/">
+    **Where Opus writes back.** (Future use.)
+    
+    **Lifecycle:** TBD — intended for AI-generated lesson proposals.
+  </Tab>
+</Tabs>
+
+### Commands
+
+<Steps>
+  <Step title="snapshot">
+    ```bash
+    python review_staging.py snapshot --family kano
+    ```
+    
+    Saves current state to `staging/baseline/`. This is your safety net — locks the starting point before testing.
+  </Step>
+  
+  <Step title="reset">
+    ```bash
+    python review_staging.py reset --family kano
+    ```
+    
+    Restores baseline + clears `reviews/`. `saved/` is untouched. Use between test cycles.
+  </Step>
+  
+  <Step title="restore">
+    ```bash
+    python review_staging.py restore --family kano
+    ```
+    
+    Reverts live files to baseline without clearing `reviews/`. (Use `reset` instead unless you have a reason.)
+  </Step>
+  
+  <Step title="diff">
+    ```bash
+    python review_staging.py diff --family kano
+    ```
+    
+    Shows unified diff between baseline and current live files. Verifies nothing leaked.
+  </Step>
+  
+  <Step title="list">
+    ```bash
+    python review_staging.py list --family kano [--source live]
+    ```
+    
+    Lists baseline, reviews, and saved reviews. Optional `--source` filter.
+  </Step>
+  
+  <Step title="save">
+    ```bash
+    python review_staging.py save --family kano --review 2026-02-26_063623 --name family-tree-confusion
+    ```
+    
+    Moves a review from `reviews/` to `saved/` with a human-readable name. Flags interesting material before it gets cleared.
+  </Step>
+  
+  <Step title="promote">
+    ```bash
+    python review_staging.py promote --family kano --review 2026-02-26_061700 [--items 0,1]
+    ```
+    
+    Pushes approved lessons to production (`families/kano/lessons.md`). **This is the one-way door** — the only moment real files change.
+  </Step>
+  
+  <Step title="retract">
+    ```bash
+    python review_staging.py retract --family kano --review corrections_20260228_194305 [--items 0]
+    ```
+    
+    Removes live corrections from `lessons.md` and archives the staged record.
+  </Step>
+</Steps>
+
+### Staged Testing Protocol
+
+<Accordion title="Full workflow (follow this exactly)">
+  **Setup (once per testing session):**
+  ```bash
+  python review_staging.py snapshot --family kano
+  ```
+  
+  **Test loop (repeat as many times as needed):**
+  ```bash
+  # Run test
+  python review_loop.py --since 3h --family kano --full --stage
+  
+  # See what you got
+  python review_staging.py list --family kano
+  
+  # Verify live files untouched
+  python review_staging.py diff --family kano
+  
+  # Flag interesting ones
+  python review_staging.py save --family kano --review {ts} --name family-tree-confusion
+  
+  # Restore baseline + clear reviews/ (saved/ untouched)
+  python review_staging.py reset --family kano
+  ```
+  
+  Then iterate. Change the agent, run more tests, save what's interesting, reset, repeat. `saved/` accumulates across cycles. `reviews/` gets cleared each time.
+  
+  **When ready (one-way door):**
+  ```bash
+  python review_staging.py promote --family kano --review {ts} --items 0,1
+  ```
+  
+  Pushes approved lessons to production. This is the only moment real files change.
+</Accordion>
+
+### Resist the Shiny Object
+
+From the docs:
+
+> During testing you WILL notice gaps — missing member lifecycle states, flows with no protocol, features that seem obvious to build right now. DO NOT stop testing to build them. Save the observation to `saved/` and keep going.
+
+Reasons:
+1. You're in a test cycle. Momentum matters more than plumbing.
+2. You don't have enough signal yet. Real interactions reveal what the abstraction needs to be.
+3. The observation is more valuable than the implementation right now.
+
+Observations go to `saved/` with `"type": "process_observation"`. They graduate to Linear when there's enough signal to spec them properly — not before.
+
+## Graduation Pipeline
+
+Lessons in `lessons.md` are temporary. They're meant to graduate to permanent locations:
+
+- **Factual lessons** → `family.md` or `members/{name}.md`
+- **Behavioral lessons** → `skills/social.md` or `skills/scheduling.md`
+- **Operational lessons** → `capabilities.md`
+
+### Why Graduate?
+
+- **lessons.md** is capped at 20-30 entries (to prevent prompt bloat)
+- **Eviction is lossy** — when new lessons arrive, old ones are removed
+- **Permanent files don't get evicted** — facts belong in profiles, protocols belong in skills
+
+### Workflow
+
+<Steps>
+  <Step title="Classify lessons">
+    ```bash
+    python review_staging.py graduate --family kano
+    ```
+    
+    Reads `lessons.md` and classifies each entry:
+    - **Factual:** mentions a member name → `members/{name}.md`
+    - **Factual:** general family context → `family.md`
+    - **Behavioral:** contains scheduling keywords → `skills/scheduling.md`
+    - **Behavioral:** other → `skills/social.md`
+    - **Operational:** system constraints → `capabilities.md`
+  </Step>
+  
+  <Step title="Review proposal">
+    Output shows:
+    ```
+    Graduation proposal for kano (11 lessons reviewed):
+    
+      MEMBERS/LIBAN.MD (2):
+        [0] Liban prefers evening check-ins, not mornings → Personal Context
+        [1] Liban is in CT timezone (UTC-6) → Personal Context
+    
+      SKILLS/SOCIAL.MD (1):
+        [2] One question per response, always.
+    
+      NO ACTION (8):
+        [3] Degitu is Liban's aunt ← Already in members/degitu.md
+        ...
+    ```
+  </Step>
+  
+  <Step title="Merge approved items">
+    ```bash
+    python review_staging.py merge --family kano --graduation 2026-02-28_210000 --items 0,2
+    ```
+    
+    Writes selected lessons to target files and removes them from `lessons.md`.
+  </Step>
+</Steps>
+
+### Classification Rules
+
+<Tabs>
+  <Tab title="[factual] category">
+    - Mentions a member name → `members/{name}.md` (Personal Context section)
+    - No member name → `family.md` (Care Preferences & Personality section)
+    - **Deduplication:** skips if content already exists in target file (>60% word overlap)
+  </Tab>
+  
+  <Tab title="[behavioral] category">
+    - Contains scheduling keywords (schedule, shift, ride, appointment, relay, outreach) → `skills/scheduling.md`
+    - Other → `skills/social.md`
+    - **Protected:** SOUL.md requires `--force` flag to merge
+  </Tab>
+  
+  <Tab title="[operational] category">
+    - Goes to `capabilities.md` (KNOWN LIMITATIONS section)
+  </Tab>
+</Tabs>
+
+### Safety Gates
+
+<Info>
+**Age check:** Lessons younger than 2 days are skipped (too recent, not enough signal).
+
+**Deduplication:** If content already exists in target file, the lesson is skipped.
+
+**SOUL.md protection:** Merging into SOUL.md requires `--force` flag (it's the core identity, changes should be deliberate).
+</Info>
+
+## Contextual Review Workflow
+
+The mechanical tier catches rule violations. The contextual tier finds things we didn't know to look for.
+
+### Workflow
+
+<Steps>
+  <Step title="Run staged review with full transcript">
+    ```bash
+    python review_loop.py --since 6h --family kano --full --stage
+    ```
+    
+    Writes findings + full exchanges to `staging/reviews/{timestamp}.json`.
+  </Step>
+  
+  <Step title="Read the transcript (human or Opus)">
+    Look for:
+    - **Contradictions:** Agent calling someone both "grandmother" and "aunt"
+    - **Missing context:** Confusion caused by incomplete member profiles
+    - **Protocol gaps:** Flows that should exist but don't
+    - **Process observations:** Things nobody thought to codify
+  </Step>
+  
+  <Step title="Write lessons (or proposals)">
+    - **For immediate corrections:** Add to `lessons.md` directly
+    - **For structural changes:** Write to `staging/proposals/` (markdown, not schema)
+    - **For interesting reviews:** Save before reset
+  </Step>
+  
+  <Step title="Promote approved changes">
+    ```bash
+    python review_staging.py promote --family kano --review {ts} --items 0,2,5
+    ```
+  </Step>
+</Steps>
+
+### Why Proposals Stay Markdown
+
+From the docs:
+
+> If we constrain what "good output" looks like, we lose these. `proposals/` stays markdown (not schema) so Opus can surface whatever it notices. The whole point is to not constrain what gets found.
+
+The most valuable findings aren't rule violations — they're things we didn't know we needed.
+
+## Review Outputs
+
+### Findings Structure
+
+```python
+@dataclass
+class Finding:
+    severity: str       # critical | warning | info
+    category: str       # skill_violation | operational | feedback | pattern
+    title: str
+    evidence: str
+    recommendation: str
+    lesson: str | None  # written to lessons.md if non-None
+```
+
+### Lesson Writing
+
+Generated lessons are written via `append_lessons()`:
+
+```python
+from learning import append_lessons
+
+# Family-specific
+append_lessons(
+    paths.families / family_id / "lessons.md",
+    lessons=["One question per response, always."],
+    max_entries=30
+)
+
+# Global
+append_lessons(
+    paths.lessons,
+    lessons=["Never say 'before I can proceed'."],
+    max_entries=50
+)
+```
+
+### Eviction on Write
+
+When lessons exceed the max, category-aware eviction removes oldest entries while preserving diversity:
+
+- Each category ([behavioral], [factual], [operational]) is guaranteed at least 1 slot
+- Slots are distributed proportionally to how many entries each category has
+- Oldest entries within each category are removed first
+
+See [Learning System: Eviction Strategy](/agent/learning-system#eviction-strategy) for details.
+
+## Real Example: Family Tree Confusion
+
+<Accordion title="Expand to see full example">
+  **Conversation:**
+  ```
+  [14:20] USER: Can you check with my grandmother about Monday?
+  [14:21] AGENT: I'll message Degitu about Monday.
+  [14:25] USER: Degitu is my aunt, not my grandmother.
+  [14:26] AGENT: Got it — Degitu is your aunt. I've corrected that.
+  ```
+  
+  **Mechanical tier (review_loop.py):**
+  ```bash
+  python review_loop.py --since 1h --family kano
+  ```
+  
+  **Output:**
+  ```
+  ℹ️  INFO (1)
+  User feedback detected (correction)
+    Evidence: Degitu is my aunt, not my grandmother.
+    Recommendation: Review this correction feedback for lessons
+  ```
+  
+  **No lesson auto-generated** — needs contextual review.
+  
+  **Contextual review:**
+  - Agent has `"relationship": "grandmother"` in member profile
+  - User corrected it mid-conversation
+  - Agent used `self_corrections` to capture the fix
+  - Lesson written to `families/kano/lessons.md`:
+    ```
+    - [2026-02-26] Degitu is Liban's aunt (Roman's sister), not his grandmother. When Liban says 'she is my aunt,' accept it and move forward.
+    ```
+  
+  **Follow-up action:**
+  - Update `members/degitu.md` with correct relationship
+  - Graduate the lesson via `graduate` + `merge` workflow
+</Accordion>
+
+## Key Principles
+
+<Info>
+**Mechanical tier is fast, limited scope.** Catches rule violations automatically.
+
+**Contextual tier is slow, high value.** Finds things we didn't know to look for.
+
+**Staging prevents accidental mutation.** Nothing touches production until explicitly promoted.
+
+**Graduation moves lessons to permanent homes.** Prevents eviction, keeps prompts lean.
+</Info>

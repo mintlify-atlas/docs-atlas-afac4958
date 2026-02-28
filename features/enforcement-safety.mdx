@@ -1,0 +1,631 @@
+---
+title: 'Enforcement & Safety Gates'
+description: 'Mechanical PHI compliance and safety enforcement at every step'
+---
+
+## Overview
+
+CareSupport's safety layer isn't optional—it's mechanical. Every message passes through four enforcement gates:
+
+1. **role_filter.py** — Pre-filters context by access level (agent never sees restricted data)
+2. **phi_audit.py** — Logs every PHI access for HIPAA compliance
+3. **approval_pipeline.py** — Requires coordinator confirmation for medication/member changes
+4. **message_lock.py** — Serializes message processing per family (prevents race conditions)
+
+<Info>
+  **Enforcement is code, not prompts.** The agent is ALSO told to respect access levels in its system prompt, but the filter catches what the agent misses. Defense in depth.
+</Info>
+
+## Role Filter: Access Level Enforcement
+
+Every care team member has an access level that determines what sections of `family.md` they can see:
+
+<Tabs>
+  <Tab title="Access Matrix">
+    | Access Level | Can See | Can Approve Changes |
+    |--------------|---------|---------------------|
+    | **full** | Everything | ✓ |
+    | **schedule+meds** | Schedule, medications, appointments, urgent notes | ✗ |
+    | **schedule** | Schedule, availability, urgent notes | ✗ |
+    | **provider** | Care recipient details, medications, appointments, care team | ✗ |
+    | **limited** | Care recipient name and care team roster only | ✗ |
+
+    **Example:**
+    - Liban (coordinator): `full` — sees everything, can approve medication changes
+    - Roman (parent): `schedule+meds` — sees schedule and medications, but not insurance or financial details
+    - Solan (driver): `schedule` — sees schedule only, no medication information
+    - Amanti (community supporter): `schedule` — sees schedule only
+  </Tab>
+
+  <Tab title="Section Mapping">
+    **family.md sections mapped to access matrix:**
+
+    ```python
+    # From role_filter.py:54-67
+    SECTION_KEY_MAP = {
+        "members":          "members",
+        "care recipient":   "care_recipient",
+        "schedule":         "schedule",
+        "medications":      "medications",
+        "appointments":     "appointments",
+        "availability":     "availability",
+        "active issues":    "active_issues",
+        "recent events":    "recent_events",
+        "patterns":         "patterns",
+        "insurance":        "insurance",
+        "care preferences": "care_preferences",
+    }
+    ```
+
+    **If a section isn't in your allowed list, you don't see it.** Period.
+  </Tab>
+
+  <Tab title="Pre-Filter Flow">
+    ```python
+    # From role_filter.py:126-157
+    def filter_family_context(family_md: str, access_level: str) -> str:
+        config = ACCESS_MATRIX.get(access_level)
+        allowed = config["sections"]
+
+        if "*" in allowed:
+            return family_md  # Full access, no filtering
+
+        # Parse file into sections
+        header, sections = parse_family_sections(family_md)
+
+        # Keep only allowed sections
+        filtered_parts = [header]
+        for section in sections:
+            if section.key in allowed:
+                filtered_parts.append(section.content)
+
+        return "\n\n".join(filtered_parts)
+    ```
+
+    **The agent never sees restricted sections.** If Solan (schedule-only) asks "What medications is she on?", the agent's context doesn't include the medications section. It can't leak what it doesn't have.
+  </Tab>
+</Tabs>
+
+### Post-Check: Leakage Scanning
+
+Even after pre-filtering, the agent might accidentally mention restricted information (hallucinated medication names, condition keywords). The post-check catches this:
+
+<Accordion title="How Leakage Detection Works">
+  ```python
+  # From role_filter.py:235-275
+  def check_outbound_message(message: str, access_level: str) -> LeakageResult:
+      allowed = ACCESS_MATRIX[access_level]["sections"]
+
+      if "*" in allowed:
+          return LeakageResult(is_clean=True)  # Full access, no restrictions
+
+      leaked_categories = []
+      leaked_terms = []
+
+      # Check medication leakage (for members who can't see medications)
+      if "medications" not in allowed:
+          med_terms = scan_for_medication_leakage(message)
+          if med_terms:
+              leaked_categories.append("medications")
+              leaked_terms.extend(med_terms)
+
+      # Check condition leakage (for members who can't see care_recipient)
+      if "care_recipient" not in allowed:
+          condition_terms = scan_for_condition_leakage(message)
+          if condition_terms:
+              leaked_categories.append("conditions")
+              leaked_terms.extend(condition_terms)
+
+      return LeakageResult(
+          is_clean=(len(leaked_categories) == 0),
+          leaked_categories=leaked_categories,
+          leaked_terms=leaked_terms
+      )
+  ```
+
+  **Medication patterns detected:**
+  - Drug name suffixes: `-pril`, `-sartan`, `-statin`, `-formin`, `-olol`
+  - Dosage patterns: `10mg`, `500 mg`, `100 mcg`
+  - Examples: "lisinopril", "metformin 500mg", "atorvastatin"
+
+  **Condition patterns detected:**
+  - Keywords: `diabetes`, `hypertension`, `alzheimer`, `dementia`
+  - Clinical terms: `diagnosis`, `prescription`, `A1C`, `blood pressure`
+</Accordion>
+
+<Accordion title="What Happens When Leakage is Detected">
+  ```python
+  # From sms_handler.py:1065-1097
+  leakage = check_outbound_message(sms_response, access_level)
+
+  if not leakage.is_clean:
+      # BLOCKED — agent tried to share restricted information
+      _audit.log_response_blocked(
+          family_id=family_id,
+          recipient_phone=from_phone,
+          access_level=access_level,
+          leaked_categories=leakage.leaked_categories,
+          leaked_terms=leakage.leaked_terms,
+      )
+
+      # Replace with safe response
+      sms_response = "I'm sorry, I can't share that information with your access level. Please contact the care coordinator if you need more details."
+
+      return {"success": True, "response": sms_response, ...}
+  ```
+
+  **The user receives:**
+  ```
+  I'm sorry, I can't share that information with your access level.
+  Please contact the care coordinator if you need more details.
+  ```
+
+  **The coordinator sees (in phi_audit.log):**
+  ```json
+  {
+    "timestamp": "2026-02-28T14:30:22Z",
+    "event": "response_blocked",
+    "severity": "HIGH",
+    "family_id": "kano",
+    "recipient_phone": "+16514109390",
+    "access_level": "schedule",
+    "leaked_categories": ["medications"],
+    "leaked_terms": ["lisinopril", "10mg"]
+  }
+  ```
+</Accordion>
+
+## PHI Audit: HIPAA Compliance Logging
+
+Every interaction that touches Protected Health Information is logged:
+
+<Tabs>
+  <Tab title="What Gets Logged">
+    **1. Context Load (every inbound message):**
+    ```json
+    {
+      "timestamp": "2026-02-28T14:30:22Z",
+      "event": "context_load",
+      "family_id": "kano",
+      "accessor": {
+        "phone": "+16517037981",
+        "role": "family_caregiver",
+        "access_level": "full"
+      },
+      "sections_loaded": ["*"],
+      "trigger": "Can someone take auntie to work tomorrow at 8am?"
+    }
+    ```
+
+    **2. Response Sent (every outbound message):**
+    ```json
+    {
+      "timestamp": "2026-02-28T14:30:25Z",
+      "event": "response_sent",
+      "family_id": "kano",
+      "recipient": {
+        "phone": "+16517037981",
+        "role": "family_caregiver",
+        "access_level": "full"
+      },
+      "response_length": 67,
+      "leakage_check_passed": true
+    }
+    ```
+
+    **3. Response Blocked (PHI leakage detected):**
+    ```json
+    {
+      "timestamp": "2026-02-28T14:35:10Z",
+      "event": "response_blocked",
+      "severity": "HIGH",
+      "family_id": "kano",
+      "recipient_phone": "+16514109390",
+      "access_level": "schedule",
+      "leaked_categories": ["medications"],
+      "leaked_terms": ["lisinopril", "10mg"]
+    }
+    ```
+
+    **4. Outreach Sent (agent contacted another member):**
+    ```json
+    {
+      "timestamp": "2026-02-28T14:30:26Z",
+      "event": "outreach_sent",
+      "family_id": "kano",
+      "initiated_by": "+16517037981",
+      "sent_to": {
+        "phone": "+16514109390",
+        "name": "Solan"
+      },
+      "purpose": "Can you drive Degitu to work Monday at 8am?"
+    }
+    ```
+
+    **5. Unknown Number (unrecognized phone contacted system):**
+    ```json
+    {
+      "timestamp": "2026-02-28T15:00:00Z",
+      "event": "unknown_number",
+      "phone": "+16125551234",
+      "phi_disclosed": false
+    }
+    ```
+  </Tab>
+
+  <Tab title="Log Storage">
+    **Path:** `runtime/logs/{YYYY-MM-DD}/phi_access.log`
+
+    **Format:** JSON Lines (one event per line)
+
+    **Retention:** Logs are kept for 7 years (HIPAA requirement)
+
+    **Example:**
+    ```bash
+    runtime/logs/
+    ├── 2026-02-27/
+    │   └── phi_access.log
+    ├── 2026-02-28/
+    │   └── phi_access.log
+    └── 2026-03-01/
+        └── phi_access.log
+    ```
+  </Tab>
+
+  <Tab title="Audit Queries">
+    **Who accessed PHI for family "kano" today?**
+    ```bash
+    jq 'select(.family_id == "kano" and .event == "context_load")' \
+      runtime/logs/2026-02-28/phi_access.log
+    ```
+
+    **How many leakage blocks happened this week?**
+    ```bash
+    cat runtime/logs/2026-02-*/phi_access.log | \
+      jq -s '[.[] | select(.event == "response_blocked")] | length'
+    ```
+
+    **Show all unknown number attempts:**
+    ```bash
+    jq 'select(.event == "unknown_number")' \
+      runtime/logs/2026-02-28/phi_access.log
+    ```
+  </Tab>
+</Tabs>
+
+### Implementation
+
+```python
+# From phi_audit.py:23-61
+class PHIAuditLogger:
+    def __init__(self, log_dir: Path):
+        self.log_dir = log_dir
+
+    def _write_event(self, event: dict):
+        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        log_path = self.log_dir / date_str / "phi_access.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(log_path, "a") as f:
+            f.write(json.dumps(event) + "\n")
+
+    def log_context_load(self, family_id, accessor_phone, accessor_role,
+                         access_level, sections_loaded, trigger_message):
+        self._write_event({
+            "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+            "event": "context_load",
+            "family_id": family_id,
+            "accessor": {
+                "phone": accessor_phone,
+                "role": accessor_role,
+                "access_level": access_level,
+            },
+            "sections_loaded": sections_loaded,
+            "trigger": trigger_message[:200],
+        })
+```
+
+**The handler calls this on every message:**
+```python
+# From sms_handler.py:987-994
+_audit.log_context_load(
+    family_id=family_id,
+    accessor_phone=from_phone,
+    accessor_role=member["role"],
+    access_level=access_level,
+    sections_loaded=visible_sections,
+    trigger_message=body,
+)
+```
+
+**If it fails to log, the interaction should not proceed.** (Currently best-effort; future: block if logging fails)
+
+## Approval Pipeline: Coordinator Confirmation
+
+Certain changes require explicit YES/NO approval from a full-access member:
+
+<Tabs>
+  <Tab title="What Requires Approval">
+    ```python
+    # From approval_pipeline.py:40-47
+    APPROVAL_REQUIRED = {
+        ("medications", "append"),      # Adding a new medication
+        ("medications", "prepend"),     # Adding a new medication
+        ("medications", "replace"),     # Changing dosage, schedule, etc.
+        ("care_recipient", "replace"),  # Changing conditions, emergency contact
+        ("members", "append"),          # Adding a new member
+        ("members", "replace"),         # Changing member details
+    }
+    ```
+
+    **Why these?** High-stakes changes. A typo in medication dosage or a wrong phone number for a care team member could cause harm.
+
+    **Everything else auto-applies:** Schedule updates, recent event notes, active issue resolutions.
+  </Tab>
+
+  <Tab title="Approval Flow">
+    ### Step 1: User Requests Change
+    ```
+    You: Change Degitu's Lisinopril to 20mg
+
+    CareSupport: I've noted the medication change. Sending to Liban for approval.
+    ```
+
+    ### Step 2: System Creates Pending Approval
+    ```python
+    # From approval_pipeline.py:140-178
+    approval = create_pending(
+        family_dir=family_dir,
+        update=update,
+        description="Change Lisinopril dosage to 20mg",
+        requester_phone="+16516214824",
+        requester_name="Roman",
+        approver_phones=["+16517037981"],  # Liban
+        expiry_hours=24,
+    )
+    ```
+
+    **Stored in:** `families/kano/pending_approvals.json` (survives restarts)
+
+    ### Step 3: Confirmation SMS Sent to Approver
+    ```
+    [To Liban]
+    ⚠️ Approval needed: Change Lisinopril dosage to 20mg
+    Requested by Roman.
+    Reply YES or NO (ref: a3f8c21d)
+    ```
+
+    ### Step 4: Approver Responds
+    ```
+    Liban: YES
+
+    CareSupport: ✅ Approved: Change Lisinopril dosage to 20mg. Change applied.
+    ```
+
+    **What happened:**
+    - System detected "YES" as an approval response
+    - Matched approval ID `a3f8c21d`
+    - Applied the change via `family_editor.py`
+    - Marked approval as "approved" in `pending_approvals.json`
+    - Notified requester (Roman) that the change was applied
+  </Tab>
+
+  <Tab title="Detection Logic">
+    ```python
+    # From approval_pipeline.py:326-365
+    def detect_approval_response(message: str) -> tuple[bool | None, str | None]:
+        text = message.strip()
+
+        # Check for "YES abc123" or "NO abc123" pattern
+        parts = text.split()
+        approval_id = parts[1] if len(parts) == 2 else None
+
+        if _YES_PATTERNS.match(text):
+            return True, approval_id  # Approved
+
+        if _NO_PATTERNS.match(text):
+            return False, approval_id  # Rejected
+
+        return None, None  # Not an approval response
+    ```
+
+    **YES patterns:** `yes`, `y`, `approve`, `confirm`, `ok`, `go ahead`, `do it`
+
+    **NO patterns:** `no`, `n`, `reject`, `deny`, `cancel`, `don't`, `nope`
+  </Tab>
+</Tabs>
+
+### Expiration & Stale Approvals
+
+**Default expiry:** 24 hours
+
+**What happens if approver doesn't respond?**
+- After 24 hours, approval is marked "expired"
+- If approver replies after expiry: "⏰ That approval has expired. Please ask to resubmit."
+- Requester must ask again if they still want the change
+
+**Cleanup:**
+```python
+# From approval_pipeline.py:305-322
+def expire_stale(family_dir: Path) -> int:
+    approvals = load_pending(family_dir)
+    now = datetime.now(timezone.utc)
+    count = 0
+
+    for a in approvals:
+        if a.status != "pending":
+            continue
+        expires = datetime.fromisoformat(a.expires_at.rstrip("Z"))
+        if now > expires:
+            a.status = "expired"
+            count += 1
+
+    if count > 0:
+        save_pending(family_dir, approvals)
+
+    return count
+```
+
+**Run periodically:** Cron job or scheduled task calls `expire_stale()` daily
+
+## Message Lock: Race Condition Prevention
+
+**Problem:** Two messages arrive for the same family within 1 second. Without serialization:
+
+1. Handler A reads `family.md`
+2. Handler B reads `family.md` (same version)
+3. Handler A writes changes
+4. Handler B writes changes (overwrites A's changes)
+
+**Solution:** Per-family file locks.
+
+<Tabs>
+  <Tab title="Lock Mechanism">
+    ```python
+    # From message_lock.py:170-207
+    @contextmanager
+    def family_lock(family_id: str, phone: str = ""):
+        lock_file = families_dir / family_id / ".lock"
+
+        # Acquire lock (blocks until available or timeout)
+        lock_info = acquire_lock(family_id, phone=phone, timeout=30)
+
+        try:
+            yield lock_info  # Process message under lock
+        finally:
+            release_lock(family_id)  # Always release
+    ```
+
+    **Lock file contents:**
+    ```json
+    {
+      "pid": 12345,
+      "timestamp": 1709107822.5,
+      "phone": "+16517037981"
+    }
+    ```
+
+    **Stale lock recovery:** If lock is older than 120 seconds, assume process crashed and force-acquire.
+  </Tab>
+
+  <Tab title="Usage in Handler">
+    ```python
+    # From sms_handler.py:958
+    with family_lock(family_id, phone=from_phone):
+        return await _process_message(
+            member, family_id, family_dir, access_level,
+            from_phone, body, dry_run, service
+        )
+    ```
+
+    **Effect:** All reads and writes to `family.md`, `schedule.md`, `medications.md`, and `pending_approvals.json` are serialized. Only one message per family is processed at a time.
+  </Tab>
+
+  <Tab title="Reentrant Locks">
+    **What if poll_inbound and handle_sms both call family_lock in the same thread?**
+
+    ```python
+    # Thread-local tracking prevents deadlock
+    _thread_local = threading.local()
+
+    def _get_held_locks() -> set:
+        if not hasattr(_thread_local, "held_locks"):
+            _thread_local.held_locks = set()
+        return _thread_local.held_locks
+
+    # In family_lock():
+    held = _get_held_locks()
+    if family_id in held:
+        # Already held by this thread — reentrant, just yield
+        yield None
+        return
+    ```
+
+    **Different threads track independently.** Thread A can hold lock for family "kano" while Thread B holds lock for family "martinez" simultaneously.
+  </Tab>
+</Tabs>
+
+## Common Scenarios
+
+<Accordion title="Scenario 1: Restricted Member Asks About Medications">
+  **User:** Solan (schedule-only access)
+
+  ```
+  Solan: What medications is Degitu on?
+
+  CareSupport: I don't have access to medication details for your role.
+               Please reach out to Liban if you need this information.
+  ```
+
+  **What happened:**
+  1. `filter_family_context()` removed medications section before agent saw it
+  2. Agent's context doesn't include medications
+  3. Agent responds that it doesn't have that information
+  4. `log_context_load()` logged that Solan requested context (sections_loaded: ["schedule", "availability"])
+</Accordion>
+
+<Accordion title="Scenario 2: Agent Accidentally Leaks Medication Name">
+  **User:** Solan (schedule-only access)
+
+  ```
+  Solan: How is Degitu feeling today?
+  ```
+
+  **Agent tries to respond:**
+  ```
+  She's doing well. Make sure she takes her Lisinopril this morning.
+  ```
+
+  **Post-check catches it:**
+  ```python
+  leakage = check_outbound_message(response, "schedule")
+  # Returns: LeakageResult(is_clean=False, leaked_terms=["lisinopril"])
+  ```
+
+  **Solan receives:**
+  ```
+  I'm sorry, I can't share that information with your access level.
+  Please contact the care coordinator if you need more details.
+  ```
+
+  **phi_audit.log records:**
+  ```json
+  {"event": "response_blocked", "leaked_terms": ["lisinopril"]}
+  ```
+</Accordion>
+
+<Accordion title="Scenario 3: Medication Change Requires Approval">
+  **User:** Roman (schedule+meds access, but cannot approve)
+
+  ```
+  Roman: The doctor said to increase Lisinopril to 20mg
+
+  CareSupport: I've noted the medication change. Sending to Liban for approval.
+
+  [To Liban]
+  ⚠️ Approval needed: Change Lisinopril dosage to 20mg
+  Requested by Roman.
+  Reply YES or NO (ref: a3f8c21d)
+
+  Liban: YES
+
+  CareSupport: ✅ Approved: Change Lisinopril dosage to 20mg. Change applied.
+  ```
+
+  **Why approval was required:**
+  ```python
+  requires_approval("medications", "replace") == True
+  ```
+</Accordion>
+
+## Source Reference
+
+- **Role filter:** `runtime/enforcement/role_filter.py` (filter_family_context, check_outbound_message)
+- **PHI audit:** `runtime/enforcement/phi_audit.py` (PHIAuditLogger class, log_context_load, log_response_blocked)
+- **Approval pipeline:** `runtime/enforcement/approval_pipeline.py` (classify_updates, create_pending, resolve_approval)
+- **Message lock:** `runtime/enforcement/message_lock.py` (family_lock context manager, acquire_lock, release_lock)
+- **Pipeline integration:** `sms_handler.py:914-1228` (handle_sms, _process_message)
+
+<Info>
+  **Want to see enforcement in action?** Read `sms_handler.py:914-1228` (handle_sms function). Follow the inline comments—every enforcement gate is called explicitly with error handling.
+</Info>

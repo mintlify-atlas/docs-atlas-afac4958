@@ -1,0 +1,356 @@
+---
+title: Configuration
+description: Configure CareSupport runtime paths, settings, and behavior
+---
+
+CareSupport uses a centralized configuration system defined in `runtime/config.py`. This guide covers all configuration options and customization.
+
+## Configuration Architecture
+
+All runtime scripts import from `runtime/config.py` — **no hardcoded paths anywhere**. This makes CareSupport portable and easy to deploy.
+
+```python
+from config import CONFIG, paths, linq, twilio
+
+family_dir = paths.family_dir("kano")
+family_file = paths.family_file("kano")
+```
+
+## Environment Variables
+
+CareSupport reads configuration from environment variables, typically set in a `.env` file.
+
+### Core Settings
+
+```bash .env
+# ─── Data Root ──────────────────────────────────────
+# Base directory for all CareSupport data
+# Defaults to /work if not set
+CARESUPPORT_ROOT=/work
+
+# ─── AI Backend ─────────────────────────────────────
+# Which AI provider to use: "openrouter" or "anthropic"
+CARESUPPORT_AI_BACKEND=openrouter
+
+# OpenRouter configuration (if using openrouter backend)
+OPENROUTER_API_KEY=sk-or-v1-...
+
+# Anthropic configuration (if using anthropic backend)
+ANTHROPIC_API_KEY=sk-ant-...
+
+# ─── Messaging (Linq API) ───────────────────────────
+LINQ_API_TOKEN=your_linq_api_token
+LINQ_PHONE=+1XXXXXXXXXX
+LINQ_WEBHOOK_SECRET=your_webhook_signing_secret
+```
+
+### How CARESUPPORT_ROOT Works
+
+The `CARESUPPORT_ROOT` variable determines where all family data, logs, and conversations are stored:
+
+```python
+# From runtime/config.py
+ROOT = Path(os.environ.get("CARESUPPORT_ROOT", "/work"))
+```
+
+**Directory structure under ROOT:**
+
+```
+$CARESUPPORT_ROOT/
+├── families/           # Family directories
+│   ├── kano/
+│   │   ├── routing.json
+│   │   ├── family.md
+│   │   └── members/
+│   └── smith/
+├── conversations/      # Message logs
+│   ├── chats/         # By chat_id
+│   └── +1.../         # By phone number
+├── logs/              # System logs
+│   ├── webhooks/
+│   ├── reactions/
+│   └── phi_access.log
+└── protocols/         # Care protocols (16 .md files)
+```
+
+## Path Resolution
+
+The `Paths` class in `config.py` provides methods for resolving all file paths:
+
+### Family Paths
+
+```python
+from config import paths
+
+# Family directory: $ROOT/families/kano/
+paths.family_dir("kano")
+
+# Family file: $ROOT/families/kano/family.md
+paths.family_file("kano")
+
+# Schedule: $ROOT/families/kano/schedule.md
+paths.family_schedule("kano")
+
+# Medications: $ROOT/families/kano/medications.md
+paths.family_medications("kano")
+
+# Routing: $ROOT/families/kano/phone_routing.json
+paths.phone_routing("kano")
+```
+
+### Conversation Logs
+
+```python
+# Phone-based log: $ROOT/conversations/+16517037981/2026-02.log
+paths.conversation_log("+16517037981", "2026-02")
+
+# Chat-based log: $ROOT/conversations/chats/uuid/2026-02.log
+linq_paths.chat_conversation_log("chat-uuid", "2026-02")
+```
+
+### Learning Paths
+
+```python
+# Global lessons: $ROOT/runtime/learning/lessons.md
+paths.lessons
+
+# Capabilities: $ROOT/runtime/learning/capabilities.md
+paths.capabilities
+
+# Skills directory: $ROOT/runtime/learning/skills/
+paths.skills_dir
+```
+
+## Linq Configuration
+
+Linq settings are loaded from **two sources**:
+
+1. **Environment variables** (`.env`)
+2. **Config file** (`runtime/scripts/linq_config.json`)
+
+### linq_config.json
+
+```json runtime/scripts/linq_config.json
+{
+  "linq_api_token": "YOUR_LINQ_API_TOKEN",
+  "linq_phone": "+1XXXXXXXXXX",
+  "base_url": "https://api.linqapp.com/api/partner/v3",
+  "webhook_signing_secret": "YOUR_WEBHOOK_SIGNING_SECRET"
+}
+```
+
+<Note>
+Environment variables take precedence over the config file. This allows you to override settings without editing `linq_config.json`.
+</Note>
+
+### LinqConfig Class
+
+```python
+from config import linq
+
+linq.api_token          # From LINQ_API_TOKEN env or linq_config.json
+linq.phone_number       # From LINQ_PHONE env or linq_config.json
+linq.base_url           # Linq API endpoint
+linq.webhook_signing_secret  # For webhook verification
+```
+
+## AI Backend Configuration
+
+CareSupport supports two AI backends:
+
+### OpenRouter Backend
+
+```bash .env
+CARESUPPORT_AI_BACKEND=openrouter
+OPENROUTER_API_KEY=sk-or-v1-...
+```
+
+**Default model:** `anthropic/claude-haiku-4-5`
+
+### Anthropic Direct Backend
+
+```bash .env
+CARESUPPORT_AI_BACKEND=anthropic
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+**Default model:** `claude-haiku-4-5`
+
+<Tabs>
+  <Tab title="OpenRouter">
+    ```python
+    # From sms_handler.py
+    from openai import OpenAI
+    
+    _ai_client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=os.environ.get("OPENROUTER_API_KEY", ""),
+    )
+    ```
+    
+    **Why OpenAI package for OpenRouter?**
+    
+    OpenRouter's API is OpenAI-compatible, so we use the `openai` Python package to access it. This is not the same as using OpenAI's models directly.
+  </Tab>
+  
+  <Tab title="Anthropic Direct">
+    ```python
+    # From sms_handler.py
+    import anthropic
+    
+    _anthropic_client = anthropic.Anthropic(
+        api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+    )
+    ```
+  </Tab>
+</Tabs>
+
+## Runtime Behavior Settings
+
+### Message Polling Interval
+
+When using `poll_inbound.py` for message polling:
+
+```bash
+# Poll every 15 seconds
+python runtime/scripts/poll_inbound.py --interval 15
+
+# Poll every 30 seconds (lower API usage)
+python runtime/scripts/poll_inbound.py --interval 30
+```
+
+<Note>
+**Webhooks vs Polling:** For production, use webhooks for real-time delivery. Polling is useful for development and testing.
+</Note>
+
+### Dry Run Mode
+
+Test message processing without sending responses:
+
+```bash
+python runtime/scripts/sms_handler.py \
+  --from "+16517037981" \
+  --body "Can someone take auntie to work tomorrow?" \
+  --dry-run
+```
+
+Dry run mode:
+- Resolves phone → family → member
+- Loads family context
+- Generates AI response
+- **Does not** send the message
+- **Does not** update family files
+
+## Custom Configuration Files
+
+### Adding Custom Paths
+
+Extend the `Paths` class in `runtime/config.py`:
+
+```python
+class Paths:
+    def __init__(self, root: Path):
+        self.root = root
+        self.families = root / "families"
+        self.my_custom_dir = root / "custom"  # Add custom path
+    
+    def my_custom_file(self, family_id: str) -> Path:
+        return self.my_custom_dir / family_id / "custom.json"
+```
+
+### Multiple Environment Configurations
+
+Use different `.env` files for different environments:
+
+<CodeGroup>
+```bash Development
+# .env.development
+CARESUPPORT_ROOT=/work/dev
+CARESUPPORT_AI_BACKEND=openrouter
+OPENROUTER_API_KEY=sk-or-v1-dev...
+LINQ_API_TOKEN=dev_token
+```
+
+```bash Production
+# .env.production
+CARESUPPORT_ROOT=/work/prod
+CARESUPPORT_AI_BACKEND=anthropic
+ANTHROPIC_API_KEY=sk-ant-prod...
+LINQ_API_TOKEN=prod_token
+```
+</CodeGroup>
+
+Load with:
+
+```bash
+# Development
+export ENV=development
+python -c "from dotenv import load_dotenv; load_dotenv('.env.development')"
+
+# Production
+export ENV=production
+python -c "from dotenv import load_dotenv; load_dotenv('.env.production')"
+```
+
+## Verify Configuration
+
+Test your configuration setup:
+
+```bash
+python -c "from config import paths, linq; \
+  print(f'Root: {paths.root}'); \
+  print(f'Families: {paths.families}'); \
+  print(f'Linq Phone: {linq.phone_number}')"
+```
+
+Expected output:
+```
+Root: /work
+Families: /work/families
+Linq Phone: +1XXXXXXXXXX
+```
+
+## Common Configuration Patterns
+
+### Docker Deployment
+
+When running in Docker, mount your data directory:
+
+```dockerfile
+# Dockerfile
+ENV CARESUPPORT_ROOT=/data
+VOLUME /data
+```
+
+```bash
+# Run with mounted volume
+docker run -v /host/caresupport-data:/data \
+  -e OPENROUTER_API_KEY=$OPENROUTER_API_KEY \
+  -e LINQ_API_TOKEN=$LINQ_API_TOKEN \
+  caresupport
+```
+
+### Shared Development Environment
+
+Multiple developers working on the same system:
+
+```bash
+# Developer 1
+CARESUPPORT_ROOT=/work/alice
+LINQ_PHONE=+15551234567
+
+# Developer 2
+CARESUPPORT_ROOT=/work/bob
+LINQ_PHONE=+15559876543
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Create First Family" href="/setup/first-family" icon="users">
+    Set up your first family directory structure
+  </Card>
+  <Card title="Advanced Configuration" href="/advanced/custom-paths" icon="code">
+    Custom paths, hooks, and extensions
+  </Card>
+</CardGroup>

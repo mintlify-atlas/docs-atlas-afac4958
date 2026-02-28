@@ -1,0 +1,460 @@
+---
+title: 'AI Agent Intelligence'
+description: 'How CareSupport learns, reasons, and improves through conversation'
+---
+
+## Overview
+
+CareSupport isn't a chatbot following a script—it's a learning agent that adapts to your family's needs. It routes messages to the right AI model based on complexity, assembles context from multiple sources, and writes corrections to its own instruction files when you teach it something new.
+
+<Info>
+  **The agent has memory.** When you correct it ("Don't say that", "Remember this"), it writes the correction to `lessons.md` immediately. You'll see the fix applied in the next conversation.
+</Info>
+
+## AI Backend: Anthropic + OpenRouter
+
+CareSupport uses two AI providers:
+
+<Tabs>
+  <Tab title="Anthropic (Primary)">
+    **Models:**
+    - Claude Haiku 4.5 (fast tier) — greetings, schedule updates, general coordination
+    - Claude Sonnet 4.6 (reason tier) — medication changes, multi-member coordination, onboarding
+    - Claude Opus 4.6 (critical tier) — emergencies, escalation triggers
+
+    **Why Anthropic?**
+    - Prompt caching reduces cost by 90% for repeated context (family file, skills, lessons)
+    - Native structured output (no JSON schema hacks)
+    - Better instruction-following than GPT-4o for care coordination tasks
+
+    **Cost optimization:**
+    ```python
+    # Cached prefix: ~5,000 tokens (SOUL.md + skills + lessons + member context)
+    # Fresh on first call, cached for 5 minutes after
+    # Every subsequent message within 5 minutes:
+    #   - Reads 5,000 tokens from cache (10% of write cost)
+    #   - Writes only the new family context + current message
+    ```
+
+    **Set backend:**
+    ```bash
+    export CARESUPPORT_AI_BACKEND=anthropic
+    export ANTHROPIC_API_KEY=sk-ant-...
+    ```
+  </Tab>
+
+  <Tab title="OpenRouter (Fallback)">
+    **Models:** Multi-model fallback (Haiku → Sonnet → GPT-4o-mini)
+
+    **Why OpenRouter?**
+    - Unified API for 100+ models (Anthropic, OpenAI, Google, Meta)
+    - Automatic failover if one provider is down
+    - Cost optimization (routes to cheapest available model)
+
+    **When it's used:**
+    - Anthropic API is down or rate-limited
+    - Development environments without Anthropic credits
+    - Testing new models without changing infrastructure
+
+    **Set backend:**
+    ```bash
+    export CARESUPPORT_AI_BACKEND=openrouter
+    export OPENROUTER_API_KEY=sk-or-...
+    ```
+  </Tab>
+</Tabs>
+
+**Cross-provider resilience:** If Anthropic fails after 3 retries, the handler automatically falls back to OpenRouter. You get a response even if one provider is down.
+
+## Intent Routing: Fast, Reason, Critical
+
+Every message is classified into a tier BEFORE the AI call. This determines which model to use:
+
+<Tabs>
+  <Tab title="Classification Logic">
+    ```python
+    # From care_router.py:80-108
+    def route(message: str, member: dict) -> RouteResult:
+        # Priority order — first match wins:
+
+        if _EMERGENCY.search(message):
+            return RouteResult("critical", OPUS, "EMERGENCY")
+            # Keywords: 911, chest pain, can't breathe, fell, unconscious
+
+        if _ESCALATION.search(message):
+            return RouteResult("critical", OPUS, "ESCALATION")
+            # Patterns: missed medication, no coverage, gap in care
+
+        if _MEDICATION_CHANGE.search(message):
+            return RouteResult("reason", SONNET, "MEDICATION_CHANGE")
+            # Requests to start, stop, change, or adjust medications
+
+        if _ONBOARDING.search(message):
+            return RouteResult("reason", SONNET, "ONBOARDING")
+            # Adding new members, setting up new caregivers
+
+        if _MULTI_MEMBER.search(message):
+            return RouteResult("reason", SONNET, "MULTI_MEMBER")
+            # "Tell Solan and Roman both...", "Notify everyone..."
+
+        return RouteResult("fast", HAIKU, "GENERAL")
+    ```
+
+    **Why pattern matching instead of AI classification?**
+    - Zero latency (no extra API call)
+    - Zero cost (no tokens consumed)
+    - Deterministic (same message always routes the same way)
+  </Tab>
+
+  <Tab title="Tier Costs">
+    | Tier | Model | Cost per 1M input tokens | Cost per 1M output tokens |
+    |------|-------|--------------------------|---------------------------|
+    | **fast** | Claude Haiku 4.5 | $0.25 | $1.25 |
+    | **reason** | Claude Sonnet 4.6 | $3.00 | $15.00 |
+    | **critical** | Claude Opus 4.6 | $15.00 | $75.00 |
+
+    **Real-world mix (March 2026):**
+    - 70% fast tier (Haiku)
+    - 25% reason tier (Sonnet)
+    - 5% critical tier (Opus)
+
+    **Average cost per message:** $0.008 (0.8 cents)
+  </Tab>
+
+  <Tab title="Fallback Chain">
+    If a model returns 429 (rate limit) or 529 (overloaded), the system tries the next tier:
+
+    ```python
+    # From care_router.py:111-119
+    def fallback_chain(start_model: str) -> list[str]:
+        # Example: Haiku → Sonnet → Opus
+        return [start_model, *higher_tiers]
+    ```
+
+    **Why upward fallback?** A more capable model can always handle a simpler task. A simpler model might fail at a complex task.
+  </Tab>
+</Tabs>
+
+## Context Assembly: What the Agent Sees
+
+Every message triggers a multi-source context load:
+
+<Accordion title="1. SOUL.md (Identity)">
+  The agent's core identity and reasoning framework.
+
+  **Loaded from:** `SOUL.md` at repository root
+
+  **Content:**
+  - Four-step reasoning loop (LISTEN → REASON → ACT → CLOSE THE LOOP)
+  - Learning system explanation ("Your corrections become your instructions")
+  - Voice guidelines ("Match the family's register. Use names, not roles.")
+  - Hard rules ("Never fabricate certainty about your own past actions")
+
+  **Why it's separate from the system prompt:** Identity should be version-controlled and human-readable. It changes rarely (once per quarter), so any edits are intentional and reviewed.
+</Accordion>
+
+<Accordion title="2. Agent Routing (agent_root.md)">
+  Tells the agent which skills and playbooks to load for different message types.
+
+  **Example:**
+  ```markdown
+  ## Routing
+  - Schedule/availability requests → tasks/scheduling.md
+  - Medication questions → tasks/medications.md
+  - New member setup → onboarding.md
+  - Urgent/emergency → tasks/escalations.md
+  ```
+
+  **Why routing is explicit:** The agent shouldn't guess which protocol to follow. If a message is about scheduling, it loads `scheduling.md`. If it's about onboarding, it loads `onboarding.md`.
+</Accordion>
+
+<Accordion title="3. Capabilities (CAN / CANNOT)">
+  **Loaded from:** `runtime/learning/capabilities.md`
+
+  **Format:**
+  ```markdown
+  ## CAN
+  - Generate SMS responses
+  - Apply family_file_updates (append/prepend/replace to existing sections)
+  - Flag needs_outreach (requests to contact other team members)
+  - Persist self_corrections to lessons.md
+
+  ## CANNOT
+  - Directly text people (outreach is queued, not real-time)
+  - Access external systems (no API calls, no database queries)
+  - Make medical decisions (always defer to providers)
+  - See data outside your filtered context (access level enforcement)
+  ```
+
+  **Why capabilities are explicit:** The agent needs gates, not guidelines. "You cannot make medical decisions" is a constraint, not a suggestion.
+</Accordion>
+
+<Accordion title="4. Skills (Conversation Patterns)">
+  **Loaded from:** `runtime/learning/skills/*.md`
+
+  **Examples:**
+  - `onboarding.md` — How to welcome new members and explain CareSupport
+  - `social.md` — How to handle greetings, gratitude, apologies
+  - `scheduling.md` — How to coordinate rides, appointments, coverage
+
+  **Format:**
+  ```markdown
+  # Skill: Onboarding New Members
+
+  ## When to use
+  - Someone says "What is this?" or "Who are you?"
+  - First message from a new phone number (after routing.json is updated)
+
+  ## How to respond
+  1. Welcome them by name
+  2. Explain what CareSupport does for this family
+  3. Set expectations ("I coordinate schedules, track medications, and keep the team connected")
+  4. Ask what they need help with
+
+  ## Don't
+  - Don't give a generic pitch ("I'm an AI assistant...")
+  - Don't over-explain how the system works
+  ```
+</Accordion>
+
+<Accordion title="5. Lessons (Corrections)">
+  **Two types:**
+  - **Global lessons** (`runtime/learning/lessons.md`) — corrections from all families
+  - **Family lessons** (`families/{id}/lessons.md`) — corrections specific to this family
+
+  **Format:**
+  ```markdown
+  - [behavioral] When someone says "thanks", respond with "You're welcome" not "Happy to help!" (2026-02-27)
+  - [factual] Degitu's work is Downtown Minneapolis, not St. Paul (2026-02-26)
+  - [operational] Always populate needs_outreach when saying "I'll message [name]" (2026-02-28)
+  ```
+
+  **How lessons are created:**
+  1. User corrects the agent ("That's wrong", "Don't say that again")
+  2. Agent captures it in `self_corrections` field of response
+  3. System writes to `lessons.md` immediately
+  4. Next message: agent sees the correction in its context
+
+  **Max entries:** 20 global, 30 per family (oldest entries are rotated out)
+</Accordion>
+
+<Accordion title="6. Family Context (Filtered by Access Level)">
+  **Loaded from:** `families/{id}/family.md`, `schedule.md`, `medications.md`
+
+  **Pre-filtered by role_filter.py** (see Enforcement & Safety page)
+
+  **What the agent sees:**
+  - Full-access members: Everything
+  - Schedule+meds members: Schedule, medications, urgent notes (no insurance, no family-only discussions)
+  - Schedule-only members: Schedule and urgent notes only
+  - Limited members: Care recipient name and care team roster only
+</Accordion>
+
+<Accordion title="7. Member Profile">
+  **Loaded from:** `families/{id}/members/{first_name}.md`
+
+  **Content:**
+  - Communication preferences ("Prefers texts over calls")
+  - Care responsibilities ("Primary driver for Tuesday appointments")
+  - Personal context ("Works downtown, flexible schedule")
+  - Interaction history ("2026-02-27: Requested Yada be added to team")
+
+  **Why member profiles matter:** The agent can adapt its tone, reference past conversations, and know who to contact for what.
+</Accordion>
+
+<Accordion title="8. Recent Conversation History">
+  **Loaded from:** `conversations/{phone}/{YYYY-MM}.log`
+
+  **Last 50 lines:**
+  ```
+  [2026-02-28 14:30:22 UTC] [INBOUND] Can someone take auntie to work tomorrow?
+  [2026-02-28 14:30:25 UTC] [OUTBOUND] I'll check with Solan and Roman about the 8am ride.
+  [2026-02-28 14:45:10 UTC] [INBOUND] Thanks
+  [2026-02-28 14:45:12 UTC] [OUTBOUND] You're welcome
+  ```
+
+  **Why 50 lines?** Enough to maintain conversation continuity ("What did I ask about earlier?") without overwhelming the context window.
+</Accordion>
+
+## Prompt Caching: 90% Cost Reduction
+
+Anthropic's prompt caching lets you mark sections of the system prompt as "cacheable". If the cached prefix hasn't changed, you pay 1/10th the cost to reload it.
+
+<Tabs>
+  <Tab title="Cache Strategy">
+    **Cached prefix (lasts 5 minutes):**
+    1. SOUL.md (identity) — never changes
+    2. Routing + Capabilities + Skills — changes monthly
+    3. Response format + channel guidance — never changes
+    4. Lessons (global + family) — changes weekly
+    5. Member identity + member profile — changes per member
+
+    **Cache breakpoint:** After block 5 (~5,000 tokens)
+
+    **Dynamic suffix (fresh every call):**
+    6. Family context (filtered) — changes daily
+    7. Current datetime — changes every call
+
+    **Result:** First message pays full cost. Every subsequent message within 5 minutes pays 10% of the cached portion.
+  </Tab>
+
+  <Tab title="Implementation">
+    ```python
+    # From prompt_builder.py:73-164
+    def build_system_blocks(member: dict, family_context: str) -> list[dict]:
+        blocks = [
+            {"type": "text", "text": soul_text, "cache_breakpoint": False},
+            {"type": "text", "text": routing_text, "cache_breakpoint": False},
+            {"type": "text", "text": response_format, "cache_breakpoint": False},
+            {"type": "text", "text": lessons_text, "cache_breakpoint": False},
+            {"type": "text", "text": member_identity, "cache_breakpoint": True},  # ← Cache ends here
+            {"type": "text", "text": family_context, "cache_breakpoint": False},
+            {"type": "text", "text": current_datetime, "cache_breakpoint": False},
+        ]
+        return blocks
+    ```
+
+    **Anthropic API call:**
+    ```python
+    system_content = [
+        {
+            "type": "text",
+            "text": block["text"],
+            "cache_control": {"type": "ephemeral"}  # Only if cache_breakpoint=True
+        }
+        for block in system_blocks
+    ]
+
+    response = anthropic_client.messages.create(
+        model="claude-sonnet-4-6",
+        system=system_content,
+        messages=[{"role": "user", "content": message}]
+    )
+    ```
+  </Tab>
+
+  <Tab title="Cost Example">
+    **Scenario:** Liban sends 10 messages in 3 minutes.
+
+    **Without caching:**
+    - 10 messages × 8,000 input tokens × $3.00 per 1M tokens = **$0.24**
+
+    **With caching:**
+    - Message 1: 8,000 tokens (full cost) = $0.024
+    - Messages 2-10: 5,000 cached (10% cost) + 3,000 fresh = $0.015 + $0.009 = $0.024 × 9 = $0.216
+    - **Total: $0.024 + $0.216 = $0.24 → $0.039** (84% reduction)
+
+    **Real-world savings:** March 2026 average was $0.008 per message (vs. $0.032 without caching).
+  </Tab>
+</Tabs>
+
+## Learning System: Self-Corrections
+
+When you correct the agent, it writes the correction to its own instruction files:
+
+<Accordion title="How It Works">
+  **Your correction:**
+  ```
+  You: Don't call her "grandmother"—she's my aunt.
+  ```
+
+  **Agent response (internal structure):**
+  ```json
+  {
+    "sms_response": "Got it — I'll make sure to call her your aunt.",
+    "self_corrections": [
+      "[factual] Degitu is Liban's aunt, not grandmother (2026-02-28)"
+    ]
+  }
+  ```
+
+  **What happens next:**
+  1. System writes correction to `families/kano/lessons.md`
+  2. Correction is loaded into agent context on the next message
+  3. Agent sees: "Degitu is Liban's aunt, not grandmother"
+  4. Agent never makes that mistake again (for this family)
+</Accordion>
+
+<Accordion title="Correction Categories">
+  **[behavioral]** — How to reason or respond
+  - Example: "When someone says 'thanks', respond with 'You're welcome' not 'Happy to help!'"
+
+  **[factual]** — Care facts about this family
+  - Example: "Degitu's work is Downtown Minneapolis, not St. Paul"
+
+  **[operational]** — System behavior
+  - Example: "Always populate needs_outreach when saying 'I'll message [name]'"
+</Accordion>
+
+<Accordion title="Staged Review (Testing Corrections Before Production)">
+  CareSupport has a staging system for testing corrections without mutating production data:
+
+  ```bash
+  # 1. Lock baseline (your safety net)
+  python runtime/scripts/review_staging.py snapshot --family kano
+
+  # 2. Run tests (writes to staging/reviews/, doesn't touch live files)
+  python runtime/scripts/review_loop.py --since 3h --family kano --full --stage
+
+  # 3. Save interesting findings
+  python runtime/scripts/review_staging.py save --family kano --review {timestamp} --name "family-tree-confusion"
+
+  # 4. Reset to baseline + clear test output (saved items survive)
+  python runtime/scripts/review_staging.py reset --family kano
+
+  # 5. Promote approved corrections to production
+  python runtime/scripts/review_staging.py promote --family kano --review {timestamp} --items 0,1
+  ```
+
+  **Why staging exists:** Without it, every test run writes to real files. Staging is a scratch pad—nothing touches production until you explicitly promote it.
+</Accordion>
+
+## Response Structure
+
+The agent always responds with structured JSON (enforced by Anthropic's `response_format` parameter):
+
+```json
+{
+  "sms_response": "I'll check with Solan and Roman about the 8am ride.",
+  "internal_notes": "Requesting ride for Mon 8am. Solan typically available mornings. Roman has flexible schedule.",
+  "needs_outreach": [
+    {
+      "phone": "+16514109390",
+      "name": "Solan",
+      "message": "Hi Solan, can you drive Degitu to work Monday at 8am?"
+    },
+    {
+      "phone": "+16516214824",
+      "name": "Roman",
+      "message": "Hi Roman, can you drive Degitu to work Monday at 8am if Solan can't?"
+    }
+  ],
+  "family_file_updates": [
+    {
+      "section": "schedule",
+      "operation": "replace",
+      "old_content": "- Mon: TBD",
+      "content": "- Mon 8:00am: Pending confirmation (Solan or Roman)"
+    }
+  ],
+  "self_corrections": [],
+  "member_updates": [],
+  "routing_updates": []
+}
+```
+
+**Why JSON?** The handler needs to parse the response programmatically. Plain text responses would require regex parsing (brittle) or additional AI calls (expensive).
+
+## Source Reference
+
+- **Intent routing:** `runtime/scripts/care_router.py` (route function, fallback_chain)
+- **Prompt builder:** `runtime/scripts/prompt_builder.py` (build_system_blocks, cache-aware assembly)
+- **AI generation:** `sms_handler.py:487-625` (generate_response for OpenRouter, _generate_response_anthropic for Anthropic)
+- **Context assembly:** `sms_handler.py:289-397` (build_system_context, _channel_guidance)
+- **Learning persistence:** `sms_handler.py:628-683` (_persist_lessons, _stage_corrections)
+- **Skills directory:** `runtime/learning/skills/` (onboarding.md, social.md, scheduling.md)
+- **Lessons:** `runtime/learning/lessons.md` (global), `families/{id}/lessons.md` (per-family)
+
+<Info>
+  **Want to see how the agent learns?** Read `sms_handler.py:628-683` (_persist_lessons) to see how corrections flow from `self_corrections` → `lessons.md` → next message context.
+</Info>

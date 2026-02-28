@@ -1,0 +1,311 @@
+---
+title: "Managing Family Members"
+description: "Add, update, and manage members of a care team including caregivers, family, and supporters"
+---
+
+## Overview
+
+Member management involves adding new people to the care team, creating their profiles, assigning roles and access levels, and managing their participation over time. Each member needs both a routing.json entry and a member profile.
+
+## Adding a New Member
+
+<Steps>
+  <Step title="Add Entry to routing.json">
+    Add the new member's phone number to the `members` dictionary:
+    
+    ```json
+    {
+      "family_id": "kano",
+      "members": {
+        "+16517037981": {
+          "name": "Liban",
+          "role": "primary_caregiver",
+          "access_level": "full",
+          "active": true,
+          "chat_id": "1965f2b5-c5e6-4a08-80e9-9224b8a20d88"
+        },
+        "+16516214824": {
+          "name": "Roman Tefera",
+          "role": "family_caregiver",
+          "access_level": "schedule+meds",
+          "active": true,
+          "relationship": "sister of care recipient"
+        }
+      },
+      "care_recipient": "Degitu",
+      "status": "active",
+      "created": "2026-02-25"
+    }
+    ```
+  </Step>
+
+  <Step title="Create Member Profile">
+    Create a new profile file at `members/{name}.md`:
+    
+    ```markdown
+    # Roman Tefera — Member Profile
+    
+    ## Identity
+    - Name: Roman Tefera
+    - Phone: +16516214824
+    - Role: family_caregiver
+    - Relationship to care recipient: sister
+    - Access level: schedule+meds
+    
+    ## Communication Preferences
+    - Preferred channel:
+    - Language:
+    - Response time expectations:
+    - Preferred notification hours:
+    
+    ## Care Responsibilities
+    <!-- What Roman handles day-to-day — learned through conversation -->
+    
+    ## Personal Context
+    <!-- Context that helps CareSupport be human, not clinical -->
+    
+    ## Interaction History
+    - 2026-02-26: Added to Degitu's care team by Liban.
+    ```
+  </Step>
+
+  <Step title="Update Care Team in family.md">
+    Add the member to the Care Team table in family.md:
+    
+    ```markdown
+    ## Care Team
+    
+    | Role | Name | Phone | Access Level | Hours | Active |
+    |---|---|---|---|---|---|
+    | Primary caregiver | Liban | +16517037981 | full | | ✓ |
+    | Family caregiver | Roman Tefera | +16516214824 | schedule+meds | | ✓ |
+    ```
+  </Step>
+
+  <Step title="Send Introduction Message">
+    Establish chat_id and welcome the new member:
+    
+    ```bash
+    python runtime/scripts/linq_gateway.py create \
+      --to "+16516214824" \
+      --body "Hi Roman, welcome to CareSupport! Liban has added you to Degitu's care team." \
+      --service iMessage
+    ```
+    
+    Update routing.json with the returned `chat_id`.
+  </Step>
+</Steps>
+
+## Member Roles
+
+CareSupport supports five distinct roles, each with different responsibilities and permissions:
+
+<ParamField path="primary_caregiver" type="role">
+  **Primary Caregiver** — Main coordinator for the care recipient. Typically has full access and approval authority.
+  
+  - Full access to all sections of family.md
+  - Can approve care plan changes
+  - Receives escalations for unresolved gaps
+  - Default access level: `full`
+</ParamField>
+
+<ParamField path="family_caregiver" type="role">
+  **Family Caregiver** — Family member involved in care but may have limited access to sensitive medical information.
+  
+  - Access to schedule, medications (depending on access_level)
+  - Cannot approve care plan changes by default
+  - Typical access levels: `schedule+meds`, `schedule`, or `limited`
+</ParamField>
+
+<ParamField path="professional_caregiver" type="role">
+  **Professional Caregiver** — Paid caregiver providing professional services.
+  
+  - Access to schedule and care notes relevant to their shifts
+  - Can log sessions and document care activities
+  - Typical access level: `schedule+meds` or `provider`
+</ParamField>
+
+<ParamField path="community_supporter" type="role">
+  **Community Supporter** — Friend, neighbor, or volunteer providing occasional support.
+  
+  - Limited access to non-medical information
+  - Can help with errands, transportation, social visits
+  - Typical access level: `schedule` or `limited`
+</ParamField>
+
+<ParamField path="care_recipient" type="role">
+  **Care Recipient** — The person receiving care (may also coordinate their own care).
+  
+  - Can have full or limited access depending on preference
+  - May serve as primary coordinator in some families
+</ParamField>
+
+## Member Schema Reference
+
+Each member in routing.json requires these fields:
+
+<ParamField path="name" type="string" required>
+  Display name used in prompts, logs, and messages. Can include full name (e.g., "Roman Tefera") or first name only.
+</ParamField>
+
+<ParamField path="role" type="enum" required>
+  One of: `primary_caregiver`, `family_caregiver`, `professional_caregiver`, `community_supporter`, `care_recipient`
+</ParamField>
+
+<ParamField path="access_level" type="enum" required>
+  Determines what sections of family.md this member can see. Options:
+  - `full` — All sections, can approve changes
+  - `schedule+meds` — Schedule, medications, appointments, urgent notes
+  - `schedule` — Schedule and urgent notes only
+  - `provider` — Medical info, medications, appointments, care team
+  - `limited` — Members and care recipient basic info only
+</ParamField>
+
+<ParamField path="active" type="boolean" required>
+  Whether this member receives messages. Set to `false` to temporarily disable without removing.
+</ParamField>
+
+<ParamField path="chat_id" type="string" optional>
+  Linq chat UUID, populated after first message exchange. Used for reliable message routing.
+</ParamField>
+
+<ParamField path="relationship" type="string" optional>
+  Relationship to care recipient (e.g., "grandson", "sister", "neighbor"). Helps personalize agent responses.
+</ParamField>
+
+## Role Assignment via Agent
+
+Members can be added through conversation with the agent:
+
+```
+Coordinator: "Add my sister Roman to the care team. Her number is +16516214824."
+
+Agent processes routing_updates field:
+{
+  "routing_updates": [
+    {
+      "action": "add",
+      "phone": "+16516214824",
+      "name": "Roman",
+      "role": "family_caregiver",
+      "relationship": "sister",
+      "access_level": "schedule+meds"
+    }
+  ]
+}
+```
+
+<Note>
+  The agent uses conservative defaults: `role=family_caregiver` and `access_level=schedule+meds` unless the coordinator specifies otherwise. The coordinator can always adjust these later.
+</Note>
+
+## Updating Member Information
+
+Member profiles grow through interaction. The agent updates profiles via `member_updates`:
+
+```json
+{
+  "member_updates": [
+    {
+      "member": "Roman",
+      "field": "care_responsibilities",
+      "value": "Handles weekday morning medication reminders and accompanies to medical appointments."
+    },
+    {
+      "member": "Roman",
+      "field": "communication_preferences",
+      "value": "Prefers evening check-ins after 6pm. Responds quickly to urgent matters."
+    }
+  ]
+}
+```
+
+The system automatically:
+1. Validates the member exists in routing.json
+2. Updates the appropriate section in `members/{name}.md`
+3. Logs the update to the member's Interaction History
+4. Triggers `_persist_member_updates()` in sms_handler.py
+
+## Deactivating Members
+
+To temporarily remove a member from active participation:
+
+1. Set `"active": false` in routing.json
+2. Update family.md Care Team table (remove ✓ or mark inactive)
+3. Add note to member's profile: "Temporarily inactive as of {date}: {reason}"
+
+<Warning>
+  Do NOT delete member entries or profiles. Historical context is valuable. Use the `active` flag to control participation.
+</Warning>
+
+## Example: Multi-Member Family
+
+Here's a complete routing.json for a family with diverse roles:
+
+```json
+{
+  "family_id": "kano",
+  "members": {
+    "+16517037981": {
+      "name": "Liban",
+      "role": "primary_caregiver",
+      "access_level": "full",
+      "active": true,
+      "relationship": "grandson",
+      "chat_id": "1965f2b5-c5e6-4a08-80e9-9224b8a20d88"
+    },
+    "+16516214824": {
+      "name": "Roman Tefera",
+      "role": "family_caregiver",
+      "access_level": "schedule+meds",
+      "active": true,
+      "relationship": "sister of care recipient"
+    },
+    "+16514109390": {
+      "name": "Solan Kano",
+      "role": "family_caregiver",
+      "access_level": "limited",
+      "active": true,
+      "relationship": "contacted via outreach"
+    },
+    "+19522157878": {
+      "name": "Amanti Melkamu",
+      "role": "community_supporter",
+      "access_level": "schedule",
+      "active": true,
+      "relationship": "community_helper",
+      "chat_id": "753c8dcf-b13e-4727-b85a-a4f253db0eca"
+    }
+  },
+  "care_recipient": "Degitu",
+  "status": "active",
+  "created": "2026-02-25"
+}
+```
+
+This family has:
+- 1 primary caregiver (full access)
+- 2 family caregivers (different access levels)
+- 1 community supporter (limited, schedule-only)
+
+## Best Practices
+
+<Warning>
+  **Coordinator Confirmation Required** — The agent should NEVER add members without explicit coordinator request including name and phone number.
+</Warning>
+
+- Start with conservative access levels; expand as needed
+- Use `relationship` field to capture family context
+- Let profiles grow organically through conversation
+- Document timezone differences in Personal Context
+- Note communication preferences (texting vs calling, hours, urgency thresholds)
+
+## Next Steps
+
+<Card title="Configure Access Controls" icon="shield" href="/families/access-control">
+  Learn how access levels control what each member can see and do.
+</Card>
+
+<Card title="Phone Routing Configuration" icon="phone" href="/families/routing-configuration">
+  Understand how phone numbers map to members and chat_id resolution works.
+</Card>

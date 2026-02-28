@@ -1,0 +1,420 @@
+---
+title: Care Protocols Overview
+description: Comprehensive guide to CareSupport's 16 care coordination protocols
+---
+
+# Care Protocols Overview
+
+CareSupport uses 16 specialized care protocols to coordinate every aspect of caregiving. Each protocol handles specific situations and triggers automatically when relevant messages arrive.
+
+## How Protocols Work
+
+Protocols are intelligent workflows that:
+- **Auto-activate** based on message content and context
+- **Coordinate actions** across your care team
+- **Enforce safety rules** for medication and emergency situations
+- **Track decisions** with timestamps and attribution
+- **Adapt to your family** while maintaining clinical safety
+
+<Info>
+Protocols work together seamlessly. A single message like "Mom fell and missed her evening meds" triggers both emergency-response and medication-management protocols simultaneously.
+</Info>
+
+## The 16 Care Protocols
+
+### Critical Safety Protocols
+
+These protocols have hard safety rules that are never overridden.
+
+<Accordion title="Medication Management">
+**What it handles:** Track, remind, update, and verify all medications
+
+**When it triggers:** Any medication-related message - taken, missed, changed, refill, side effects, or questions
+
+**Key features:**
+- Drug interaction checking before any medication change
+- Requires prescriber order + primary caregiver confirmation for changes
+- Automatic refill tracking and reminders
+- Hospital-to-home medication reconciliation
+- Medication hold management during emergencies
+
+**Safety rules:**
+- Never update medications without prescriber order
+- Always check drug AND food interactions
+- Always include drug name AND dose in reminders
+- Never relay medication advice - coordinate with providers
+
+[View full documentation →](/protocols/medication-management)
+</Accordion>
+
+<Accordion title="Emergency Response">
+**What it handles:** Urgent and life-threatening situations
+
+**When it triggers:** Immediately on keywords - fall, chest pain, can't breathe, help, 911, choking, unresponsive, seizure, bleeding
+
+**Key features:**
+- Responds within one message, no delays
+- Notifies all full-access members simultaneously
+- Provides address and emergency information instantly
+- Three-tier escalation (life-threatening, urgent, concerning)
+- Emergency access override for on-scene caregivers
+
+**Safety rules:**
+- Emergency keywords trigger unconditionally (false positives acceptable)
+- Never tell someone NOT to call 911
+- Act first, gather context second
+- Condition-specific protocols stored in family file, not left to inference
+
+[View full documentation →](/protocols/escalations)
+</Accordion>
+
+<Accordion title="Hospitalization Management">
+**What it handles:** Hospital admission, inpatient stay, and discharge coordination
+
+**When it triggers:** Any report of hospital admission, ER visit, or ambulance transport
+
+**Key features:**
+- Suspends all home medication reminders during stay
+- Verifies admission vs observation status (affects insurance)
+- Coordinates care team during transition
+- Mandatory medication reconciliation at discharge
+- Reschedules all affected appointments
+
+**Safety rules:**
+- All home medications moved to Hold Log during hospitalization
+- No medication reminders resume until reconciliation complete
+- Discharge medication list must be verified before resuming care
+
+[View related protocols →](/protocols/escalations#hospitalization)
+</Accordion>
+
+<Accordion title="Care Plan Updates">
+**What it handles:** Any modification to the family care file - medications, schedules, team changes, preferences
+
+**When it triggers:** When information needs to be added or changed in the care plan
+
+**Key features:**
+- Draft/approval pattern for all changes
+- Timestamped audit trail with attribution
+- Conflict resolution when new info contradicts existing data
+- Full access required to approve changes
+
+**Safety rules:**
+- Every write requires confirmation (except logging meds taken)
+- Only full-access members can approve
+- Medication changes route through medication-management protocol
+- Never silently overwrite conflicting information
+
+[Learn more about care plan management →](/protocols/overview#care-coordination-protocols)
+</Accordion>
+
+### Care Coordination Protocols
+
+These protocols manage day-to-day coordination and scheduling.
+
+<Accordion title="Care Schedules">
+**What it handles:** Create and manage recurring reminders - medications, appointments, check-ins, shift handoffs
+
+**When it triggers:** Setting up, modifying, or deleting scheduled tasks
+
+**Two schedule types:**
+- **Agent schedules** (needs reasoning): Daily check-ins, wellness analysis, needs assessments
+- **Script schedules** (deterministic): Medication reminders, appointment reminders, shift alerts
+
+**Default schedules:**
+- Morning check-in (8am): Ask about overnight and today's plan
+- Evening check-in (8pm): Day summary and tomorrow's prep
+- Medication reminders: Per medication schedule
+- Weekly summary: Week in review to primary caregiver
+
+[View scheduling guide →](/protocols/scheduling)
+</Accordion>
+
+<Accordion title="Daily Check-In">
+**What it handles:** Regular wellness check-ins with care team
+
+**When it triggers:** Scheduled morning/evening, or when asking about sleep, meals, mood, wellbeing
+
+**Morning check-in:**
+- How did care recipient sleep?
+- Any concerns this morning?
+- Reminder of today's schedule
+
+**Evening check-in:**
+- Day summary (meals, meds, mood)
+- Missed items flagged
+- Tomorrow's first task reminder
+
+**Proactive scanning:** Each check-in also checks for upcoming medication refills, appointments within 2 days, overdue follow-ups, and condition tracking thresholds.
+
+[View check-in workflows →](/protocols/check-ins)
+</Accordion>
+
+<Accordion title="Appointment Coordination">
+**What it handles:** Schedule, remind, confirm, and prepare for medical appointments
+
+**When it triggers:** Messages about appointments, doctors, visits, check-ups, or scheduling
+
+**Features:**
+- Day-before prep checklist (insurance, meds, allergies, questions)
+- Morning-of reminder with address
+- Auto-surfaces "For Next Visit" items from care plan
+- Post-appointment follow-up for changes
+- Routes medication changes to medication-management protocol
+
+[Learn about appointment management →](/protocols/scheduling#appointment-coordination-protocol)
+</Accordion>
+
+<Accordion title="Caregiver Handoff">
+**What it handles:** Shift transitions between caregivers
+
+**When it triggers:** Scheduled shift change or manual handoff request
+
+**Handoff includes:**
+- Last meal (time and what)
+- Medication status (confirmed or missed)
+- Mood and behavior
+- Any incidents or concerns
+- Next upcoming task
+- Emotional context ("She's been asking about her sister")
+
+**Special features:**
+- Auto-generates handoff if outgoing caregiver doesn't respond
+- Identity verification for rotating professional staff
+- Enhanced orientation summary for first-time caregivers
+
+[View handoff procedures →](/protocols/check-ins#caregiver-handoff-protocol)
+</Accordion>
+
+### Communication Protocols
+
+These protocols manage information flow between family, providers, and systems.
+
+<Accordion title="Provider Communication">
+**What it handles:** Relay information to/from doctors, specialists, pharmacists
+
+**When it triggers:** Family needs to communicate with provider or prepare for visits
+
+**Features:**
+- Visit summary preparation (meds, changes, concerns, questions)
+- Urgent provider messages with structured format
+- Medication list generation
+- Inbound provider message routing
+- Provider follow-up tracking for monitoring data
+- Enhanced telehealth prep with longitudinal trends
+
+**Key difference from other tools:** Always gets family approval before contacting providers. The family is the customer, not the doctor.
+
+[View provider communication guide →](/protocols/overview#provider-communication)
+</Accordion>
+
+<Accordion title="Wellness Monitoring">
+**What it handles:** Track ongoing wellness data - meals, sleep, mood, vitals, bathroom, pain
+
+**When it triggers:** Any wellness data point reported or pattern analysis
+
+**Data tracked:**
+- Sleep (hours, quality, wakeups)
+- Meals (what, when, how much)
+- Mood (happy, anxious, confused, agitated)
+- Pain (location, severity 1-10)
+- Vitals (BP, temp, weight, O2)
+- Bathroom (frequency, assistance)
+
+**Collection style:** Passive extraction from natural conversation, not clinical interrogation. "How's she doing?" not "What was her blood oxygen saturation?"
+
+**Pattern alerting:** Flags concerning trends to primary caregiver with suggested actions.
+
+[View wellness tracking →](/protocols/overview#wellness-monitoring)
+</Accordion>
+
+### Administrative Protocols
+
+These protocols handle team management and system setup.
+
+<Accordion title="Family Onboarding">
+**What it handles:** Set up new families - create care file, onboard team, establish schedules
+
+**When it triggers:** New family signs up or texts START
+
+**Onboarding flow:**
+1. Collect care recipient info (name, conditions, living situation, mobility)
+2. Gather care team members (names and phone numbers)
+3. Create and confirm family care file
+4. Set up default schedules (check-ins, medication reminders)
+5. Send intro message to each team member
+6. First-week needs assessment (days 1, 2, 3, 5, 7)
+
+[View onboarding process →](/getting-started/onboarding)
+</Accordion>
+
+<Accordion title="Family Admin">
+**What it handles:** Manage care team membership - add, remove, update roles and access
+
+**When it triggers:** Care team composition changes
+
+**Operations:**
+- Add team member (requires confirmation, triggers onboarding)
+- Remove team member (marks inactive for audit trail)
+- Update access level (drafts old → new level)
+- Transfer primary caregiver (requires current primary confirmation)
+
+**Access levels:**
+- Full access: Can approve care plan changes
+- Schedule + meds: Receives reminders and updates
+- Schedule only: Receives schedule coordination
+- Providers: Clinical notifications
+
+[Learn about team management →](/getting-started/care-team)
+</Accordion>
+
+### Support & Navigation Protocols
+
+These protocols help families access resources and benefits.
+
+<Accordion title="Benefits Navigation">
+**What it handles:** Medicaid applications, insurance appeals, community resources, VA benefits, financial assistance
+
+**When it triggers:** Families need help with coverage, costs, applications, or finding services
+
+**Scope:**
+- Medicare/Medicaid eligibility and applications
+- HCBS waiver navigation
+- VA benefits for veterans and caregivers
+- State-specific aging/disability programs
+- Community resources (day programs, respite, meals)
+- Insurance appeals and prior authorization
+- Medication and equipment financial assistance
+- Observation vs admission status alerts
+
+**Critical alert:** When hospital stay reported, immediately advises about admission vs observation status differences for Medicare coverage.
+
+[View benefits guidance →](/guides/benefits)
+</Accordion>
+
+<Accordion title="Insurance & Benefits">
+**What it handles:** Coverage questions, claims, prior authorizations, benefits tracking
+
+**When it triggers:** Messages about insurance, coverage, cost, copay, deductible, authorization, claims
+
+**Features:**
+- Coverage verification from care file
+- Prior authorization guidance and tracking
+- Deductible tracking and alerts
+- Integration with insurance systems when available
+- Guides family through manual processes when needed
+
+[View insurance help →](/guides/insurance)
+</Accordion>
+
+<Accordion title="General Tools">
+**What it handles:** Health information search, provider email, file conversion
+
+**When it triggers:** Need to look up conditions, medications, or general health questions
+
+**Tools available:**
+- Health information search (NIH, Mayo Clinic, WebMD sources)
+- Email to providers (with family approval)
+- File conversion (discharge summaries, insurance docs, lab results)
+
+**Safety notes:**
+- Never presents search results as medical advice
+- Always frames as "Here's what I found - talk to your doctor"
+- Logs all PHI-containing communications
+
+[View available tools →](/reference/tools)
+</Accordion>
+
+### System Protocols
+
+These protocols support system functionality and development.
+
+<Accordion title="Protocol Creation">
+**What it handles:** Create new care protocols with proper structure and safety classification
+
+**When it triggers:** Creating or editing protocol files
+
+**Safety levels:**
+- **Critical:** Health/safety impact, hard rules enforced, cannot override
+- **Standard:** Important but adaptable, agent can adjust to context
+- **Informational:** Reference material, no behavioral constraints
+
+**Protocol structure:**
+- PROTOCOL.md with frontmatter (name, description, safety_level, requires_approval)
+- HARD RULES section (for critical protocols)
+- Triggers (what activates it)
+- Workflows (step-by-step procedures)
+- Message Templates (standard formats)
+
+[View protocol documentation →](/developers/protocols)
+</Accordion>
+
+## Protocol Interactions
+
+Protocols work together automatically:
+
+<Steps>
+  <Step title="Message arrives">
+    System analyzes content and identifies relevant protocols
+  </Step>
+  
+  <Step title="Multiple protocols activate">
+    Example: "Mom fell and missed her evening meds" triggers emergency-response + medication-management
+  </Step>
+  
+  <Step title="Protocols coordinate">
+    Emergency-response handles immediate safety while medication-management tracks the missed dose and reschedules
+  </Step>
+  
+  <Step title="Actions execute">
+    Appropriate team members notified, care plan updated, follow-ups scheduled
+  </Step>
+</Steps>
+
+## Safety Levels
+
+<Warning>
+**Critical protocols** have hard rules that are mechanically enforced and cannot be overridden by reasoning:
+- Medication Management
+- Emergency Response
+- Hospitalization
+- Care Plan Updates
+
+These protocols protect health and safety through code gates, not just prompt instructions.
+</Warning>
+
+**Standard protocols** follow guidelines by default but can adapt based on family context and agent reasoning.
+
+**Informational protocols** provide reference material and tools without behavioral constraints.
+
+## Protocol Development
+
+New protocols are created when:
+- A care pattern emerges that isn't covered
+- A family has unique needs
+- A provider requests specific monitoring
+- Simulation reveals a coordination gap
+
+Every protocol is developed from real care coordination needs, documented in family simulation transcripts.
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Medication Management" icon="pills" href="/protocols/medication-management">
+    Deep dive into medication tracking, reminders, and safety
+  </Card>
+  
+  <Card title="Emergency Response" icon="circle-exclamation" href="/protocols/escalations">
+    Learn how emergency situations are handled
+  </Card>
+  
+  <Card title="Scheduling" icon="calendar" href="/protocols/scheduling">
+    Master care schedules and appointment coordination
+  </Card>
+  
+  <Card title="Check-Ins" icon="clipboard-check" href="/protocols/check-ins">
+    Understand daily check-ins and caregiver handoffs
+  </Card>
+</CardGroup>

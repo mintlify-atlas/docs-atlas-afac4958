@@ -1,0 +1,504 @@
+---
+title: Runtime Scripts Reference
+description: Complete reference for all CareSupport runtime scripts
+---
+
+## Overview
+
+CareSupport's runtime is composed of single-purpose scripts that handle message processing, polling, webhooks, review, and maintenance. All scripts import from `runtime/config.py` for paths and settings.
+
+**Location:** `runtime/scripts/`
+
+## Core Pipeline Scripts
+
+### sms_handler.py
+
+The 13-step pipeline that processes inbound messages and generates responses.
+
+<CodeGroup>
+```bash Dry-run a message
+python runtime/scripts/sms_handler.py --from "+1..." --body "test message" --dry-run
+```
+
+```bash Process and send
+python runtime/scripts/sms_handler.py --from "+1..." --body "test message"
+```
+</CodeGroup>
+
+**Pipeline stages:**
+
+<Steps>
+  <Step title="Phone resolution">
+    Resolve phone → family → member → role → access level
+  </Step>
+  
+  <Step title="Context loading">
+    Load `family.md` and member-specific context
+  </Step>
+  
+  <Step title="Pre-filter (ENFORCEMENT)">
+    `role_filter.filter_family_context()` redacts sections based on access level
+  </Step>
+  
+  <Step title="PHI audit (ENFORCEMENT)">
+    `phi_audit.log_context_load()` logs who accessed what
+  </Step>
+  
+  <Step title="AI generation">
+    Call Claude via OpenRouter/Anthropic with filtered context
+  </Step>
+  
+  <Step title="Post-check (ENFORCEMENT)">
+    `role_filter.check_outbound_message()` scans for leakage
+  </Step>
+  
+  <Step title="Approval classification">
+    `approval_pipeline.classify_updates()` detects if confirmation needed
+  </Step>
+  
+  <Step title="File updates">
+    `family_editor.apply_updates()` applies changes with backup
+  </Step>
+  
+  <Step title="Response">
+    Return response for delivery (handler doesn't send directly)
+  </Step>
+</Steps>
+
+**Arguments:**
+- `--from` - Phone number (E.164 format: `+16517037981`)
+- `--body` - Message text
+- `--dry-run` - Process without sending
+- `--service` - Transport service (default: `iMessage`)
+
+**Location:** `runtime/scripts/sms_handler.py:1`
+
+### poll_inbound.py
+
+Polls Linq for new inbound messages and processes them through `sms_handler.py`.
+
+<Info>This is the **polling fallback**. The preferred path is `webhook_receiver.py` (push-based, real-time). Use polling only when webhooks aren't available.</Info>
+
+<CodeGroup>
+```bash Run once
+python runtime/scripts/poll_inbound.py --once
+```
+
+```bash Continuous polling
+python runtime/scripts/poll_inbound.py --interval 15
+```
+
+```bash Start in tmux
+tmux new-session -d -s caresupport "python3 runtime/scripts/poll_inbound.py --interval 15"
+```
+</CodeGroup>
+
+**What it does:**
+1. Lists recent inbound messages from Linq API
+2. Filters out already-processed messages (tracked by message ID)
+3. Processes each new message through `sms_handler.py`
+4. Sends responses via Linq
+5. Handles outreach to other family members
+6. Auto-registers outreach recipients in `routing.json`
+
+**Arguments:**
+- `--once` - Run once and exit (for cron)
+- `--interval` - Seconds between polls (default: 15)
+
+**Processed message tracking:** `.processed_sids.json` in `runtime/scripts/`
+
+**Location:** `runtime/scripts/poll_inbound.py:1`
+
+### webhook_receiver.py
+
+Real-time webhook receiver for Linq Partner API events.
+
+<CodeGroup>
+```bash Standalone server
+python runtime/scripts/webhook_receiver.py --port 8080
+```
+
+```python Import as handler (Vercel/ASGI)
+from webhook_receiver import handle_webhook_event
+```
+</CodeGroup>
+
+**Features:**
+- HMAC-SHA256 signature verification
+- Replay attack prevention (5-minute window)
+- Routes through full `sms_handler.py` enforcement pipeline
+- Webhook event logging to `logs/webhooks/`
+
+**Event types handled:**
+- `message.created` - New inbound message
+- `message.updated` - Message status change
+- `chat.created` - New conversation started
+
+**Enforcement preserved:**
+- `role_filter` pre-filters context by access level
+- `phi_audit` logs every PHI access
+- Leakage post-check scans outbound messages
+- `approval_pipeline` gates medication/member changes
+
+**Location:** `runtime/scripts/webhook_receiver.py:1`
+
+## Transport Scripts
+
+### linq_gateway.py
+
+Linq Partner API V3 client for iMessage-first messaging.
+
+<CodeGroup>
+```bash Send a message
+python runtime/scripts/linq_gateway.py create --to "+16517037981" --body "Hello" --service iMessage
+```
+
+```bash List active chats
+python runtime/scripts/linq_gateway.py list
+```
+
+```bash Get messages from chat
+python runtime/scripts/linq_gateway.py messages --chat-id abc123
+```
+
+```bash Send reaction
+python runtime/scripts/linq_gateway.py react --chat-id abc123 --message-id msg456 --reaction "❤️"
+```
+</CodeGroup>
+
+**API functions:**
+- `create_chat(phone, message, service)` - Start new conversation
+- `send_message(chat_id, message)` - Send to existing chat
+- `list_chats()` - Get all active conversations
+- `get_messages(chat_id, limit)` - Fetch message history
+- `start_typing(chat_id)` - Show typing indicator
+- `mark_as_read(chat_id)` - Mark conversation as read
+- `send_reaction(chat_id, message_id, reaction)` - React to message
+
+**Configuration:** `runtime/scripts/linq_config.json`
+
+```json
+{
+  "linq_api_token": "your-token",
+  "linq_phone": "+16517037981",
+  "webhook_signing_secret": "your-secret"
+}
+```
+
+**Location:** `runtime/scripts/linq_gateway.py:1`
+
+## Review & Learning Scripts
+
+### review_loop.py
+
+Rule-based conversation review that catches mechanical violations and generates findings.
+
+<CodeGroup>
+```bash Review last 2 hours
+python runtime/scripts/review_loop.py --since 2h
+```
+
+```bash Specific family with full transcript
+python runtime/scripts/review_loop.py --since 24h --family kano --full
+```
+
+```bash Staged testing (no mutation)
+python runtime/scripts/review_loop.py --since 3h --family kano --full --stage
+```
+
+```bash JSON output
+python runtime/scripts/review_loop.py --since 2h --json --full
+```
+</CodeGroup>
+
+**Two tiers of review:**
+
+1. **Mechanical tier** (automated)
+   - Multi-question detection
+   - Forbidden phrase usage
+   - Skill violation patterns
+
+2. **Contextual tier** (requires Opus)
+   - Agent contradicting itself
+   - Missing member context
+   - Flows with no protocol
+
+**Without `--stage`:** Every run writes lessons to real files (mutations)
+
+**With `--stage`:** Findings → `staging/reviews/` (scratch pad, no mutations)
+
+**Arguments:**
+- `--since` - Time window (`2h`, `24h`, `7d`)
+- `--family` - Specific family ID
+- `--full` - Include full transcript in output
+- `--stage` - Write to staging (no production changes)
+- `--json` - JSON output format
+- `--dry-run` - Preview only
+
+**Location:** `runtime/scripts/review_loop.py:1`
+
+### review_staging.py
+
+Staging environment for review testing - prevents production mutations during testing.
+
+<CodeGroup>
+```bash Lock baseline (safety net)
+python runtime/scripts/review_staging.py snapshot --family kano
+```
+
+```bash Test (accumulate in reviews/)
+python runtime/scripts/review_staging.py --since 3h --family kano --full --stage
+```
+
+```bash List what you got
+python runtime/scripts/review_staging.py list --family kano
+```
+
+```bash Save interesting finding
+python runtime/scripts/review_staging.py save --family kano --review 2026-02-26_063623 --name family-tree-confusion
+```
+
+```bash Restore baseline + clear reviews/
+python runtime/scripts/review_staging.py reset --family kano
+```
+
+```bash Promote to production
+python runtime/scripts/review_staging.py promote --family kano --review 2026-02-26_061700 --items 0,1
+```
+</CodeGroup>
+
+**Three piles:**
+
+<Accordion title="reviews/ - Disposable test output">
+- Accumulates with each `--stage` run
+- Cleared on `reset`
+- You don't care about most of these
+</Accordion>
+
+<Accordion title="saved/ - Curated material">
+- Reviews flagged as worth revisiting
+- Survives resets
+- Opus's reading pile for proposals
+</Accordion>
+
+<Accordion title="proposals/ - Where Opus writes back">
+- Future use for AI-generated improvements
+- Markdown format (not schema)
+- Can surface unexpected gaps
+</Accordion>
+
+**Staged testing protocol:**
+
+<Steps>
+  <Step title="Setup (once per session)">
+    ```bash
+    review_staging.py snapshot --family kano
+    ```
+    Locks baseline - your safety net
+  </Step>
+  
+  <Step title="Test loop (repeat as needed)">
+    ```bash
+    review_loop.py --since 3h --family kano --full --stage  # run 1
+    review_loop.py --since 3h --family kano --full --stage  # run 2
+    review_staging.py list --family kano                     # see results
+    review_staging.py save --family kano --review {ts} --name finding-name
+    review_staging.py reset --family kano                    # restore + clear
+    ```
+    Nothing permanent happens here
+  </Step>
+  
+  <Step title="When ready (one-way door)">
+    ```bash
+    review_staging.py promote --family kano --review {ts} --items 0,1
+    ```
+    This is the ONLY moment real files change
+  </Step>
+</Steps>
+
+**Location:** `runtime/scripts/review_staging.py:1`
+
+## Cron Scripts
+
+### heartbeat.py
+
+48-hour lookahead scanner that reads `family.md` and returns alerts.
+
+<CodeGroup>
+```bash Scan family for alerts
+python runtime/scripts/heartbeat.py --family-dir /path/to/family
+```
+
+```bash Custom lookahead window
+python runtime/scripts/heartbeat.py --family-dir /path/to/family --hours 72
+```
+
+```bash Simulate specific time
+python runtime/scripts/heartbeat.py --family-dir /path/to/family --now "2026-02-18T10:00"
+```
+</CodeGroup>
+
+**Alert types:**
+- **Uncovered shifts** - No one assigned or `status=uncovered`
+- **Med coverage gaps** - Shift requires `med_admin` capability but caregiver lacks it
+- **Appointment logistics** - Appointments within 48h missing transport or escort
+- **Tentative shifts** - Shifts not confirmed
+
+**Self-contained:** Reads `family.md`, parses YAML schedule blocks, evaluates rules. Does NOT use AI - fully deterministic.
+
+**Output format:**
+```json
+{
+  "family_id": "kano",
+  "scan_time": "2026-02-18T10:00:00Z",
+  "lookahead_hours": 48,
+  "alerts": [
+    {
+      "severity": "high",
+      "category": "uncovered_shift",
+      "summary": "Feb 19 morning shift uncovered",
+      "date": "2026-02-19",
+      "window": "07:00-12:00",
+      "hours_until": 21.0
+    }
+  ],
+  "all_clear": false
+}
+```
+
+**Location:** `runtime/scripts/heartbeat.py:1`
+
+### maintenance.py
+
+Garbage collection and validation for `family.md`.
+
+<CodeGroup>
+```bash Run maintenance
+python runtime/scripts/maintenance.py --family-dir /path/to/family
+```
+
+```bash Dry-run (preview only)
+python runtime/scripts/maintenance.py --family-dir /path/to/family --dry-run
+```
+
+```bash Simulate specific date
+python runtime/scripts/maintenance.py --family-dir /path/to/family --now "2026-02-18"
+```
+</CodeGroup>
+
+**Pruning rules:**
+
+| Section | Strategy |
+|---------|----------|
+| Schedule | Keep current + next 2 weeks. Past shifts removed. |
+| Recent Events | Keep last ~50 entries. Oldest pruned first. |
+| Active Issues | Resolved issues (`[x]`) removed. |
+| Appointments | Past appointments removed. |
+| Patterns | Manual review - not auto-pruned |
+| Members | Manual review - not auto-pruned |
+| Medications | Only pruned when discontinued |
+
+**Consistency checks:**
+- Members referenced in Schedule exist in Members section
+- YAML blocks still parseable
+- Required sections present
+- No orphaned member references
+
+**Uses `family_editor` backup/validate for safety.**
+
+**Location:** `runtime/scripts/maintenance.py:1`
+
+## Utility Scripts
+
+### prompt_builder.py
+
+Assembles the system prompt for AI calls.
+
+```python
+from prompt_builder import build_system_prompt
+
+system_prompt = build_system_prompt(
+    family_context="# Kano Care Network...",
+    member_name="Sarah",
+    member_role="Professional Caregiver",
+    access_level="schedule+meds"
+)
+```
+
+**Components loaded:**
+- `SOUL.md` - Agent identity
+- `runtime/learning/capabilities.md` - CAN/CANNOT list
+- `runtime/learning/lessons.md` - Corrections (max 20)
+- Filtered family context
+- Access level constraints
+
+**Location:** `runtime/scripts/prompt_builder.py:1`
+
+### care_router.py
+
+Model cost optimization - routes messages to appropriate tier.
+
+```python
+from care_router import route
+
+tier = route(inbound_message="Can someone cover Tuesday morning?")
+# Returns: "fast" | "reason" | "critical"
+```
+
+**Tiers:**
+- `fast` - Haiku 4.5 (simple queries, confirmations)
+- `reason` - Sonnet 4.6 (scheduling, coordination)
+- `critical` - Opus 4.6 (complex conflicts, sensitive situations)
+
+**Location:** `runtime/scripts/care_router.py:1`
+
+### session.py
+
+Session management for cache reuse observability.
+
+```python
+from session import get_or_create
+
+session = get_or_create(phone="+16517037981", family_id="kano")
+print(f"Session {session.session_id} - message #{session.message_count}")
+```
+
+**Location:** `runtime/scripts/session.py:1`
+
+### reaction_handler.py
+
+Handles message reactions (thumbs up/down for feedback).
+
+**Location:** `runtime/scripts/reaction_handler.py:1`
+
+## Configuration
+
+### runtime/config.py
+
+Single source of truth for all paths and settings. Every runtime script imports from here.
+
+```python
+from config import paths, linq, twilio
+
+# Get family file
+family_file = paths.family_file("kano")
+
+# Get Linq credentials
+api_token = linq.api_token
+
+# Get logs directory
+logs_dir = paths.logs
+```
+
+**Path resolution:**
+- All paths derived from `CARESUPPORT_ROOT` env var (defaults to `/work`)
+- No hardcoded absolute paths allowed
+- Tested by `test_structural.py`
+
+**Location:** `runtime/config.py:1`
+
+## Related
+
+- [Testing Guide](/development/testing) - Test suites for runtime scripts
+- [Project Structure](/development/project-structure) - Directory layout
+- [Enforcement Layer](/reference/enforcement-layer) - Safety gates used by scripts

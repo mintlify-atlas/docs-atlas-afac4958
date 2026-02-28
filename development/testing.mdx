@@ -1,0 +1,371 @@
+---
+title: Testing Guide
+description: Test suites, pytest setup, and running tests in CareSupport
+---
+
+## Overview
+
+CareSupport uses pytest for testing with 88+ structural integrity checks that verify the system without running business logic. Tests are deterministic, fast, and require no network or environment setup.
+
+## Test Philosophy
+
+**Structural over behavioral.** Tests verify wiring, config compliance, and enforcement layer correctness rather than simulating full message flows. This catches integration mistakes early without complex mocking.
+
+**The questions these tests answer:**
+- Does every runtime script import from `config.py` (no hardcoded paths)?
+- Does the handler call `role_filter` before every send?
+- Does the handler call `phi_audit` for every interaction?
+- Does `AGENTS.md` accurately reflect the current directory structure?
+- Are all enforcement modules wired into the handler?
+- Do all Python files parse without syntax errors?
+
+## Test Suites
+
+### Structural Tests
+
+Location: `runtime/tests/test_structural.py`
+
+The core test suite that validates system integrity:
+
+<CodeGroup>
+```bash Run all structural tests
+cd runtime && PYTHONPATH=. python -m pytest tests/test_structural.py -v
+```
+
+```bash Run specific check
+cd runtime && PYTHONPATH=. python -m pytest tests/test_structural.py::test_handler_enforcement_order -v
+```
+</CodeGroup>
+
+**Check categories:**
+
+<Accordion title="CHECK 1: No Hardcoded Paths">
+Verifies all runtime scripts use `config.py` instead of hardcoded absolute paths.
+
+```python
+# ❌ Bad
+family_file = Path("/work/families/kano/family.md")
+
+# ✅ Good
+from config import paths
+family_file = paths.family_file("kano")
+```
+
+Tests:
+- `test_no_hardcoded_paths()` - scans for `/work/`, `/__modal/`, `/home/` patterns
+- `test_handler_imports_config()` - verifies `sms_handler.py` imports from config
+</Accordion>
+
+<Accordion title="CHECK 2: Role Filter Before Send">
+Verifies the handler calls `role_filter` to pre-filter context by access level BEFORE the AI call.
+
+```python
+# Enforcement order (verified by position checks)
+1. filter_family_context()      # PRE-FILTER
+2. generate_response()           # AI CALL
+3. check_outbound_message()      # POST-CHECK
+4. send message
+```
+
+Tests:
+- `test_handler_pre_filter_before_ai()` - verifies pre-filter runs before AI
+- `test_handler_post_check_gates_response()` - verifies post-check blocks leakage
+</Accordion>
+
+<Accordion title="CHECK 3: PHI Audit Completeness">
+Verifies PHI audit logging covers ALL interaction paths.
+
+Four audit paths:
+- `log_context_load` - member accessed family context
+- `log_response_sent` - outbound message sent
+- `log_response_blocked` - leakage detected, response blocked
+- `log_unknown_number` - unknown phone number (early return)
+
+Tests:
+- `test_handler_phi_audit_completeness()` - all four paths present
+</Accordion>
+
+<Accordion title="CHECK 4-7: Enforcement & Coverage">
+- All enforcement modules exist (`role_filter`, `phi_audit`, `family_editor`, `approval_pipeline`, `message_lock`)
+- Handler imports all enforcement modules
+- Every enforcement module has test coverage
+- Cron scripts (heartbeat, maintenance) have tests
+</Accordion>
+
+<Accordion title="CHECK 8-11: Documentation & Dependency Hygiene">
+- `AGENTS.md` reflects current structure
+- Quality docs exist and are non-trivial
+- Approval decisions are mechanical (not agent-driven)
+- No circular imports between enforcement modules
+- Handler enforcement order correct
+</Accordion>
+
+### Enforcement Tests
+
+<CodeGroup>
+```bash Role filter tests
+cd runtime && PYTHONPATH=. python -m pytest tests/test_role_filter.py -v
+```
+
+```bash PHI audit tests
+cd runtime && PYTHONPATH=. python -m pytest tests/test_phi_audit.py -v
+```
+
+```bash Family editor tests
+cd runtime && PYTHONPATH=. python -m pytest tests/test_family_editor.py -v
+```
+
+```bash Approval pipeline tests
+cd runtime && PYTHONPATH=. python -m pytest tests/test_approval_pipeline.py -v
+```
+</CodeGroup>
+
+**Test fixtures** are in `runtime/tests/fixtures.py`:
+- Complete test family (Moreno family)
+- Members at every access level
+- Phone routing examples
+
+### Integration Tests
+
+<CodeGroup>
+```bash Handler enforcement integration
+cd runtime && PYTHONPATH=. python -m pytest tests/test_handler_enforcement.py -v
+```
+
+```bash Linq gateway tests
+cd runtime && PYTHONPATH=. python -m pytest tests/test_linq_gateway.py -v
+```
+
+```bash Webhook receiver tests
+cd runtime && PYTHONPATH=. python -m pytest tests/test_webhook_receiver.py -v
+```
+</CodeGroup>
+
+### Cron Tests
+
+<CodeGroup>
+```bash Heartbeat tests
+cd runtime && PYTHONPATH=. python -m pytest tests/test_heartbeat.py -v
+```
+
+```bash Maintenance tests
+cd runtime && PYTHONPATH=. python -m pytest tests/test_maintenance.py -v
+```
+</CodeGroup>
+
+## Running Tests
+
+### Quick Start
+
+<Steps>
+  <Step title="Navigate to runtime directory">
+    ```bash
+    cd runtime
+    ```
+    
+    All pytest commands must be run from the `runtime/` directory with `PYTHONPATH=.`
+  </Step>
+  
+  <Step title="Run all tests">
+    ```bash
+    PYTHONPATH=. python -m pytest tests/ -v
+    ```
+    
+    This runs all 88+ structural checks and enforcement tests.
+  </Step>
+  
+  <Step title="Run specific test suite">
+    ```bash
+    PYTHONPATH=. python -m pytest tests/test_structural.py -v
+    ```
+  </Step>
+</Steps>
+
+### Common Test Commands
+
+<CodeGroup>
+```bash All tests (verbose)
+cd runtime && PYTHONPATH=. python -m pytest tests/ -v
+```
+
+```bash Specific test file
+cd runtime && PYTHONPATH=. python -m pytest tests/test_role_filter.py -v
+```
+
+```bash Specific test function
+cd runtime && PYTHONPATH=. python -m pytest tests/test_structural.py::test_handler_enforcement_order -v
+```
+
+```bash Show print output
+cd runtime && PYTHONPATH=. python -m pytest tests/ -v -s
+```
+
+```bash Stop on first failure
+cd runtime && PYTHONPATH=. python -m pytest tests/ -x
+```
+</CodeGroup>
+
+## Dry-Run Mode
+
+**Test the SMS handler without sending messages:**
+
+<CodeGroup>
+```bash Dry-run a message
+python runtime/scripts/sms_handler.py --from "+16517037981" --body "test message" --dry-run
+```
+
+```bash Dry-run with debugging
+CARESSUPPORT_DEBUG_RECEIPTS=1 python runtime/scripts/sms_handler.py --from "+1..." --body "test" --dry-run
+```
+</CodeGroup>
+
+Dry-run mode:
+- Processes message through full enforcement pipeline
+- Generates AI response
+- Does NOT send message via Linq/Twilio
+- Logs all enforcement checks
+- Shows which model tier was used
+
+**Example output:**
+```
+[2026-02-28 10:15:32] INBOUND: +16517037981 → "Can someone cover Tuesday morning?"
+[2026-02-28 10:15:32]   Resolved: Kano family → Sarah (Professional Caregiver, schedule+meds access)
+[2026-02-28 10:15:32]   Context filtered: schedule, appointments (meds REDACTED)
+[2026-02-28 10:15:33]   AI response: "I'll check with Marta about Tuesday morning coverage."
+[2026-02-28 10:15:33]   Post-check: CLEAN (no leakage detected)
+[2026-02-28 10:15:33] DRY-RUN: Would send response (not actually sent)
+```
+
+## Test Data
+
+The test suite uses fixtures in `runtime/tests/fixtures.py`:
+
+```python
+FAMILY_MD = """# Moreno Care Network
+
+Coordinator: Rob Moreno (Care Recipient)
+...
+"""
+
+PHONE_ROUTING = {
+    "family_id": "moreno-test",
+    "members": [
+        {"phone": "+1-555-0101", "role": "Care Recipient", "access_level": "full"},
+        {"phone": "+1-555-0102", "role": "Family Caregiver", "access_level": "full"},
+        {"phone": "+1-555-0201", "role": "Professional Caregiver", "access_level": "schedule+meds"},
+        {"phone": "+1-555-0301", "role": "Community Supporter", "access_level": "schedule"},
+    ]
+}
+```
+
+Members cover all access levels:
+- **Full access** - care recipient + family caregiver
+- **Schedule + meds** - professional caregiver
+- **Schedule only** - community supporter
+
+## CI Integration
+
+Tests are designed for CI environments:
+
+```yaml
+# .github/workflows/test.yml
+name: Tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install pytest anthropic openai python-dotenv
+      - name: Run tests
+        run: cd runtime && PYTHONPATH=. python -m pytest tests/ -v
+```
+
+**Why these tests are CI-ready:**
+- No network calls (all enforcement is local)
+- No environment variables required (uses test fixtures)
+- Deterministic (same input → same output)
+- Fast (runs in less than 5 seconds)
+
+## Writing New Tests
+
+### Example: Testing a New Enforcement Module
+
+```python
+# runtime/tests/test_my_module.py
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from enforcement.my_module import my_function
+from tests.fixtures import FAMILY_MD, PHONE_ROUTING
+
+def test_my_function_basic():
+    result = my_function("input")
+    assert result == "expected"
+
+def test_my_function_edge_case():
+    result = my_function("")
+    assert result is None
+```
+
+### Add to Structural Tests
+
+If adding a new enforcement module, update `test_structural.py`:
+
+```python
+def test_all_enforcement_modules_exist():
+    expected_modules = [
+        "role_filter.py",
+        "phi_audit.py",
+        "family_editor.py",
+        "approval_pipeline.py",
+        "message_lock.py",
+        "my_new_module.py",  # Add here
+    ]
+    ...
+```
+
+## Debugging Test Failures
+
+<Steps>
+  <Step title="Read the assertion error">
+    Structural tests print exactly what failed:
+    ```
+    ❌ Handler imports enforcement.my_module
+    ```
+  </Step>
+  
+  <Step title="Check the source file">
+    The test tells you which file to check:
+    ```python
+    # test_structural.py line 207
+    assert_true(module in imported_modules, f"Handler imports enforcement.{module}")
+    ```
+    
+    Fix: Add the import to `runtime/scripts/sms_handler.py`
+  </Step>
+  
+  <Step title="Run the specific test">
+    ```bash
+    cd runtime && PYTHONPATH=. python -m pytest tests/test_structural.py::test_handler_imports_all_enforcement -v
+    ```
+  </Step>
+  
+  <Step title="Verify the fix">
+    Run all tests to ensure no regressions:
+    ```bash
+    cd runtime && PYTHONPATH=. python -m pytest tests/ -v
+    ```
+  </Step>
+</Steps>
+
+## Related
+
+- [Scripts Reference](/development/scripts) - Runtime scripts tested by these suites
+- [Project Structure](/development/project-structure) - Directory layout and key files
+- [Enforcement Layer](/reference/enforcement-layer) - Safety gates verified by tests

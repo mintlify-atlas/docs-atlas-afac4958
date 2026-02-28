@@ -1,0 +1,542 @@
+---
+title: 'Family Files as Operational State'
+description: 'How family.md serves as the single source of truth for care coordination'
+---
+
+## Overview
+
+**The family.md file IS the database.** Every piece of care information—schedules, medications, member roles, recent updates—lives in a structured markdown file. When you ask CareSupport to update the schedule, it surgically edits `family.md`, creates a timestamped backup, validates the result, and writes only if validation passes.
+
+<Info>
+  This isn't a cache or a view—it's the canonical state. If `family.md` says Solan is driving Monday at 8am, that's the truth. If the agent thinks otherwise, it's wrong.
+</Info>
+
+## Why Markdown Instead of a Database?
+
+**Human-readable state beats query logs every time.** Here's why:
+
+<Tabs>
+  <Tab title="Transparency">
+    You can open `family.md` in any text editor and see exactly what CareSupport knows:
+
+    ```markdown
+    ## Schedule
+    ### This Week (Mon Mar 3 - Sun Mar 9)
+    - Mon 7:45am: Solan drives Degitu to work
+    - Mon 4:30pm: Liban picks up Degitu from work
+    - Tue 2:00pm: Roman drives Degitu to doctor appointment
+    ```
+
+    No SQL queries. No API endpoints. Just plain text you can read, edit, and version control.
+  </Tab>
+
+  <Tab title="Auditability">
+    Every edit creates a timestamped backup:
+
+    ```
+    families/kano/backups/
+    ├── family_20260227_143022.md
+    ├── family_20260227_150811.md
+    └── family_20260228_091245.md
+    ```
+
+    If something breaks, you can:
+    - See exactly what changed between backups (git diff)
+    - Restore from any backup (copy file back to `family.md`)
+    - Understand why an edit was made (check conversation log for that timestamp)
+  </Tab>
+
+  <Tab title="Portability">
+    The entire care coordination system is a directory of text files:
+
+    ```
+    families/kano/
+    ├── family.md          # Current state
+    ├── schedule.md        # Split: weekly schedule
+    ├── medications.md     # Split: active meds + hold log
+    ├── routing.json       # Phone → member mapping
+    ├── lessons.md         # Per-family corrections
+    ├── members/
+    │   ├── liban.md       # Member profile
+    │   ├── roman.md
+    │   └── solan.md
+    └── backups/           # Timestamped snapshots
+    ```
+
+    No vendor lock-in. No database migrations. Export, fork, or self-host without API dependencies.
+  </Tab>
+</Tabs>
+
+## File Structure
+
+Every family.md follows the same structure:
+
+<Accordion title="Header Block (Metadata)">
+  ```markdown
+  ---
+  family_id: "kano"
+  created: "2026-02-25"
+  last_updated: "2026-02-28T05:00:00Z"
+  primary_caregiver: "+16517037981"
+  care_recipient: "Degitu"
+  status: active
+  ---
+  ```
+
+  **Auto-updated fields:**
+  - `last_updated`: Set by `family_editor.py` on every successful write
+  - `status`: `active | paused | archived`
+</Accordion>
+
+<Accordion title="Current Section (Always Loaded)">
+  ```markdown
+  # Current
+  <!-- Agent reads this section every message -->
+  <!-- Keep under 2000 tokens -->
+
+  ## Care Recipient
+  - Name: Degitu Tefera
+  - Age: ~66
+  - Primary conditions: Post-toe surgery recovery
+  - Mobility: Can walk, cannot drive or take public transit
+  - Emergency contact: Liban (+16517037981)
+
+  ## Care Team
+  | Role | Name | Phone | Access Level | Active |
+  |---|---|---|---|---|
+  | Primary caregiver | Liban | +16517037981 | full | ✓ |
+  | Family caregiver | Roman Tefera | +16516214824 | schedule+meds | ✓ |
+
+  ## Urgent Notes
+  - (none)
+
+  ## Recent Updates
+  - 2026-02-28: Solan confirmed Monday 8am ride
+  - 2026-02-27: Added Yada Kano to care team
+  ```
+
+  **Design principle:** If the agent needs it often, it lives in Current. If it's referenced rarely (full medication history, insurance details), move it to Reference.
+</Accordion>
+
+<Accordion title="Reference Section (Loaded on Demand)">
+  ```markdown
+  # Reference
+  <!-- Loaded when conversation requires historical context -->
+
+  ## Full Medication History
+  ## Past Appointments
+  ## Provider Contacts
+  ## Insurance & Coverage
+  ## Emergency Protocols
+  ## Decision History
+  ```
+
+  **Not yet implemented:** The agent currently loads all sections. Future optimization will load Reference sections only when conversation context suggests they're needed.
+</Accordion>
+
+## Split Files: schedule.md & medications.md
+
+Some sections grow large enough to justify their own files:
+
+<Tabs>
+  <Tab title="schedule.md">
+    ```markdown
+    ## Schedule
+    ### This Week (Mon Mar 3 - Sun Mar 9)
+    - Mon 7:45am: Solan drives Degitu to work (Downtown Minneapolis)
+    - Mon 4:30pm: Liban picks up Degitu from work
+    - Tue 2:00pm: Roman drives Degitu to doctor appointment
+    - Wed: Day off (Degitu working from home)
+    - Thu 7:45am: Amanti drives Degitu to work
+    - Thu 4:30pm: Liban picks up
+    - Fri 7:45am: Solan drives
+    - Fri 4:30pm: Roman picks up
+
+    ### Availability (Who Can Drive When)
+    - Liban: Evenings (after 5pm), weekends
+    - Roman: Flexible (retired)
+    - Solan: Mornings before 9am, some afternoons
+    - Amanti: Thursdays only
+    ```
+
+    **When to use:** Weekly schedules for care recipients who work or attend regular programs. Prevents the Current section from growing beyond 2000 tokens.
+  </Tab>
+
+  <Tab title="medications.md">
+    ```markdown
+    ## Active Medications
+    | Medication | Dosage | Schedule | Purpose | Prescriber |
+    |---|---|---|---|---|
+    | Lisinopril | 10mg | Daily, morning | Blood pressure | Dr. Chen |
+    | Metformin | 500mg | Twice daily (breakfast, dinner) | Diabetes | Dr. Chen |
+
+    ## Medication Hold Log
+    - 2026-02-15: Held Metformin (stomach upset) — resumed 2026-02-17
+    ```
+
+    **When to use:** Families with 3+ active medications. Keeps medication details accessible without cluttering `family.md`.
+  </Tab>
+</Tabs>
+
+**How split files are loaded:**
+```python
+# From sms_handler.py:185-201
+def load_family_context(family_dir: str) -> str:
+    parts = []
+    family_file = Path(family_dir) / "family.md"
+    if family_file.exists():
+        parts.append(family_file.read_text())
+
+    for extra in ("schedule.md", "medications.md"):
+        extra_path = Path(family_dir) / extra
+        if extra_path.exists():
+            parts.append(extra_path.read_text())
+
+    return "\n\n".join(parts)
+```
+
+The agent sees all three files as one continuous context.
+
+## Surgical Edits: Edit, Not Rewrite
+
+**Hard rule:** CareSupport NEVER rewrites `family.md` from scratch. It parses the file into sections, modifies only the target section, and reassembles with everything else unchanged.
+
+<Tabs>
+  <Tab title="Why Edit-Not-Write?">
+    **If the agent rewrites the file:**
+    - It might hallucinate details ("I think there was a medication...")
+    - It might drop sections it wasn't instructed to change
+    - It might reformat tables or change phrasing unintentionally
+
+    **With surgical edits:**
+    - Only the target section changes
+    - If the edit fails validation, nothing is written (backup stays, file unchanged)
+    - The `Last Updated` timestamp is auto-updated only on successful writes
+  </Tab>
+
+  <Tab title="Supported Operations">
+    The agent can request four operations:
+
+    ### `append`
+    Add content to the end of a section.
+    ```json
+    {
+      "section": "recent_updates",
+      "operation": "append",
+      "content": "- 2026-03-01: Solan confirmed Monday ride",
+      "old_content": ""
+    }
+    ```
+
+    ### `prepend`
+    Add content after the section header.
+    ```json
+    {
+      "section": "urgent_notes",
+      "operation": "prepend",
+      "content": "- Degitu has toe surgery follow-up Fri 10am",
+      "old_content": ""
+    }
+    ```
+
+    ### `replace`
+    Replace specific text within a section.
+    ```json
+    {
+      "section": "schedule",
+      "operation": "replace",
+      "old_content": "- Mon 7:45am: TBD",
+      "content": "- Mon 7:45am: Solan drives Degitu to work"
+    }
+    ```
+
+    ### `resolve_issue`
+    Mark an active issue as resolved (change `[ ]` to `[x]`).
+    ```json
+    {
+      "section": "active_issues",
+      "operation": "resolve_issue",
+      "content": "Find backup driver for Thursdays",
+      "old_content": ""
+    }
+    ```
+  </Tab>
+
+  <Tab title="Implementation">
+    The family editor is in `runtime/enforcement/family_editor.py`. Here's how an update flows:
+
+    ```python
+    # 1. Parse the file into sections
+    header, sections = parse_family_sections(family_md)
+
+    # 2. Find the target section
+    section = sections["schedule"]
+
+    # 3. Apply the operation
+    new_section = _apply_append(section, update.content)
+
+    # 4. Update the "Last Updated" timestamp
+    header = _update_last_updated(header)
+
+    # 5. Reassemble the file
+    new_content = _reassemble(header, sections)
+
+    # 6. Validate BEFORE writing
+    is_valid, issues = validate_family_file(new_content)
+
+    # 7. Write only if valid
+    if is_valid:
+        family_md_path.write_text(new_content)
+    ```
+
+    **If validation fails:** Backup remains, original file unchanged, error returned to caller.
+  </Tab>
+</Tabs>
+
+## Backup & Restore
+
+Every edit triggers a timestamped backup BEFORE any changes are made:
+
+<Accordion title="Backup Process">
+  ```python
+  # From family_editor.py:75-88
+  def backup_family_file(family_md_path: Path) -> Path:
+      backup_dir = family_md_path.parent / "backups"
+      backup_dir.mkdir(parents=True, exist_ok=True)
+
+      timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+      backup_path = backup_dir / f"family_{timestamp}.md"
+
+      shutil.copy2(family_md_path, backup_path)
+      return backup_path
+  ```
+
+  **Result:**
+  ```
+  families/kano/backups/family_20260228_143022.md
+  ```
+
+  The edit result includes `backup_path` so you can restore if needed.
+</Accordion>
+
+<Accordion title="Restore from Backup">
+  ```python
+  # From family_editor.py:355-363
+  def rollback(family_md_path: Path, backup_path: Path) -> bool:
+      if not backup_path.exists():
+          return False
+      shutil.copy2(backup_path, family_md_path)
+      return True
+  ```
+
+  **Manual restore (if something breaks):**
+  ```bash
+  cp families/kano/backups/family_20260228_143022.md families/kano/family.md
+  ```
+</Accordion>
+
+## Section Targeting: Split File Routing
+
+When the agent requests an update, the system resolves which file to edit:
+
+```python
+# From family_editor.py:29-45
+SECTION_FILE_MAP = {
+    "schedule": "schedule.md",
+    "this_week": "schedule.md",
+    "medications": "medications.md",
+    "active_medications": "medications.md",
+    "medication_hold_log": "medications.md",
+}
+
+def resolve_target_file(family_dir: Path, section_key: str) -> Path:
+    filename = SECTION_FILE_MAP.get(section_key, "family.md")
+    return family_dir / filename
+```
+
+**Example:**
+- Update to `schedule` → targets `schedule.md`
+- Update to `recent_updates` → targets `family.md`
+- Update to `medications` → targets `medications.md`
+
+## Validation: What Makes a File Valid?
+
+Before writing any changes, the editor validates the result:
+
+```python
+# From family_editor.py:163-198
+def validate_family_file(content: str) -> tuple[bool, list[str]]:
+    issues = []
+
+    # Check 1: File must not be empty
+    if not content.strip():
+        issues.append("File is empty")
+
+    # Check 2: Must have a top-level # header
+    lines = content.strip().split("\n")
+    if not lines[0].startswith("# "):
+        issues.append("Missing top-level # header")
+
+    # Check 3: Must have at least one ## section
+    header, sections = parse_family_sections(content)
+    if len(sections) == 0:
+        issues.append("No ## sections found")
+
+    # Check 4: Sections must have content beyond just the header
+    for section in sections:
+        content_without_header = section.content.replace(section.header, "", 1).strip()
+        if not content_without_header:
+            issues.append(f"Section '{section.key}' is empty")
+
+    return len(issues) == 0, issues
+```
+
+**If validation fails:** The system logs the issues, skips the write, and returns an error. The backup remains intact.
+
+## Concurrent Edits: Per-Family Locks
+
+**Problem:** Two messages arrive for the same family within 1 second. Without serialization, both handlers read the file, make edits, and race to write—last write wins, first edit is lost.
+
+**Solution:** Per-family message locks (file-based).
+
+<Accordion title="How Locks Work">
+  ```python
+  # From message_lock.py:170-207
+  @contextmanager
+  def family_lock(family_id: str, phone: str = ""):
+      lock_file = families_dir / family_id / ".lock"
+
+      # Acquire lock (blocks until available or timeout)
+      lock_info = acquire_lock(family_id, phone=phone, timeout=30)
+
+      try:
+          yield lock_info  # Process message under lock
+      finally:
+          release_lock(family_id)  # Always release, even if error
+  ```
+
+  **Usage in sms_handler.py:**
+  ```python
+  # Line 958
+  with family_lock(family_id, phone=from_phone):
+      return await _process_message(...)  # All reads/writes serialized
+  ```
+
+  **Stale lock recovery:** If a process crashes and leaves a lock behind, any lock older than 120 seconds is considered stale and force-acquired.
+</Accordion>
+
+## Member Profiles: Per-Person Context
+
+Each care team member has their own profile in `families/{id}/members/`:
+
+```markdown
+# Liban — Member Profile
+
+## Identity
+- Name: Liban
+- Phone: +16517037981
+- Role: family_caregiver
+- Relationship to care recipient: nephew
+- Access level: full
+
+## Communication Preferences
+- Preferred channel: iMessage
+- Language: English
+
+## Care Responsibilities
+- Primary coordinator
+- Evening and weekend rides
+- Medication reminders (backup)
+
+## Personal Context
+- Works downtown (flexible schedule)
+- Usually available after 5pm
+
+## Interaction History
+- 2026-02-25: Set up CareSupport for Kano family
+- 2026-02-27: Requested Yada be added to care team
+```
+
+**When profiles are updated:**
+- Agent uses `member_updates` (same format as `family_file_updates`)
+- Example: "Remember I prefer texts over calls" → appends to Communication Preferences
+- Profile is loaded into the agent's context on every message from that member
+
+## Common Operations
+
+<Accordion title="Updating the Schedule">
+  **User:** "Solan will drive Monday at 8am"
+
+  **Agent response:**
+  ```json
+  {
+    "sms_response": "Got it — Solan drives Monday at 8am.",
+    "family_file_updates": [
+      {
+        "section": "schedule",
+        "operation": "replace",
+        "old_content": "- Mon: TBD",
+        "content": "- Mon 7:45am: Solan drives Degitu to work"
+      }
+    ]
+  }
+  ```
+
+  **Result:** `schedule.md` is updated, backup created, validated, written.
+</Accordion>
+
+<Accordion title="Recording a Recent Update">
+  **Agent detects significant event** (new member added, medication change approved)
+
+  ```json
+  {
+    "family_file_updates": [
+      {
+        "section": "recent_updates",
+        "operation": "prepend",
+        "content": "- 2026-03-01: Yada Kano added to care team (limited access)",
+        "old_content": ""
+      }
+    ]
+  }
+  ```
+
+  **Why prepend?** Most recent updates should appear at the top of the section.
+</Accordion>
+
+<Accordion title="Resolving an Active Issue">
+  **family.md (before):**
+  ```markdown
+  ## Active Issues
+  - [ ] Find backup driver for Thursdays
+  - [ ] Update medication list with new prescription
+  ```
+
+  **Agent resolves:**
+  ```json
+  {
+    "section": "active_issues",
+    "operation": "resolve_issue",
+    "content": "Find backup driver for Thursdays"
+  }
+  ```
+
+  **Result:**
+  ```markdown
+  ## Active Issues
+  - [x] Find backup driver for Thursdays
+  - [ ] Update medication list with new prescription
+  ```
+</Accordion>
+
+## Source Reference
+
+- **Family editor:** `runtime/enforcement/family_editor.py` (backup, apply_updates, validate, rollback)
+- **Section parser:** `runtime/enforcement/role_filter.py:80-122` (parse_family_sections)
+- **Split file routing:** `family_editor.py:29-45` (SECTION_FILE_MAP, resolve_target_file)
+- **Message locks:** `runtime/enforcement/message_lock.py` (family_lock context manager)
+- **Context loading:** `sms_handler.py:185-201` (load_family_context)
+
+<Info>
+  **Want to see how an edit flows?** Read `family_editor.py:203-312` (apply_updates function). Follow the inline comments—it walks through backup → parse → edit → validate → write.
+</Info>

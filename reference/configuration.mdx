@@ -1,0 +1,405 @@
+---
+title: Configuration Reference
+description: Runtime paths, API credentials, and environment variables
+---
+
+All CareSupport runtime configuration is centralized in `runtime/config.py`. **No hardcoded paths or tokens in any script.**
+
+## Import
+
+```python
+from config import paths, linq, twilio
+```
+
+## Path Configuration
+
+### Base Paths
+
+<ParamField path="ROOT" type="Path">
+  CareSupport data root directory. Defaults to `/work` unless `CARESUPPORT_ROOT` environment variable is set.
+</ParamField>
+
+<ParamField path="SDK_DIR" type="Path">
+  SDK directory: `{ROOT}/sdk`
+</ParamField>
+
+<ParamField path="RUNTIME_DIR" type="Path">
+  Runtime module directory (where `config.py` lives)
+</ParamField>
+
+<ParamField path="SCRIPTS_DIR" type="Path">
+  Runtime scripts directory: `{RUNTIME_DIR}/scripts`
+</ParamField>
+
+Location: `runtime/config.py:22`
+
+### Paths Object
+
+The `paths` object provides resolved paths for all CareSupport data:
+
+```python
+from config import paths
+
+# Directory roots
+paths.root           # CARESUPPORT_ROOT
+paths.families       # {ROOT}/families
+paths.conversations  # {ROOT}/conversations
+paths.logs           # {ROOT}/logs
+paths.protocols      # {ROOT}/protocols
+
+# Family data
+paths.family_dir("kano")         # Path to family directory
+paths.family_file("kano")        # {families}/kano/family.md
+paths.family_schedule("kano")    # {families}/kano/schedule.md
+paths.family_medications("kano") # {families}/kano/medications.md
+paths.phone_routing("kano")      # {families}/kano/phone_routing.json
+
+# Conversation logs
+paths.conversation_log("+16517037981", "2026-02")  # {conversations}/{phone}/2026-02.log
+paths.family_timeline("kano", "2026-02")           # {families}/kano/timeline/2026-02.log
+
+# PHI audit logs
+paths.phi_access_log("2026-02-28")  # {logs}/2026-02-28/phi_access.log
+
+# Learning system
+paths.lessons          # {RUNTIME_DIR}/learning/lessons.md
+paths.capabilities     # {RUNTIME_DIR}/learning/capabilities.md
+paths.skills_dir       # {RUNTIME_DIR}/learning/skills
+paths.agent_root       # {ROOT}/agent_root.md
+
+# Deduplication tracking
+paths.processed_sids()  # {SCRIPTS_DIR}/.processed_sids.json (Twilio)
+```
+
+Location: `runtime/config.py:28`
+
+### Linq-Specific Paths
+
+Extended paths for chat-based conversations and webhook events:
+
+```python
+from config import linq_paths
+
+# Chat conversation logs (keyed by chat_id, not phone)
+linq_paths.chat_conversation_log(
+    chat_id="550e8400-e29b-41d4-a716-446655440000",
+    year_month="2026-02"
+)  # {conversations}/chats/{chat_id}/2026-02.log
+
+# Webhook event logs
+linq_paths.webhook_log("2026-02-28")  # {logs}/webhooks/2026-02-28.jsonl
+
+# Reaction event logs
+linq_paths.reaction_log("2026-02-28")  # {logs}/reactions/2026-02-28.jsonl
+
+# Deduplication tracking for webhooks
+linq_paths.processed_event_ids()  # {SCRIPTS_DIR}/.processed_event_ids.json
+```
+
+Location: `runtime/config.py:137`
+
+## Environment Variables
+
+### CARESUPPORT_ROOT
+
+<ParamField path="CARESUPPORT_ROOT" type="string" default="/work">
+  Base directory for all CareSupport data. Set this in `.env` to override the default.
+</ParamField>
+
+**Example `.env`:**
+
+```bash
+CARESUPPORT_ROOT=/Users/viktor/work
+```
+
+All paths are derived from this root.
+
+### API Keys
+
+<ParamField path="OPENROUTER_API_KEY" type="string" required>
+  OpenRouter API key for AI model access
+</ParamField>
+
+<ParamField path="ANTHROPIC_API_KEY" type="string">
+  Anthropic API key (alternative to OpenRouter)
+</ParamField>
+
+<ParamField path="CARESUPPORT_AI_BACKEND" type="string" default="openrouter">
+  AI backend to use: `"openrouter"` or `"anthropic"`
+</ParamField>
+
+<ParamField path="LINQ_API_TOKEN" type="string">
+  Linq Partner API V3 bearer token (falls back to `linq_config.json`)
+</ParamField>
+
+<ParamField path="LINQ_PHONE" type="string">
+  CareSupport's Linq Blue phone number in E.164 format (falls back to `linq_config.json`)
+</ParamField>
+
+<ParamField path="LINQ_WEBHOOK_SECRET" type="string">
+  HMAC secret for verifying Linq webhook signatures (falls back to `linq_config.json`)
+</ParamField>
+
+**Example `.env`:**
+
+```bash
+CARESUPPORT_ROOT=/Users/viktor/work
+OPENROUTER_API_KEY=sk-or-...
+ANTHROPIC_API_KEY=sk-ant-...
+CARESUPPORT_AI_BACKEND=anthropic
+LINQ_API_TOKEN=linq_...
+LINQ_PHONE=+16517037981
+LINQ_WEBHOOK_SECRET=whsec_...
+```
+
+## Linq Configuration
+
+### LinqConfig Object
+
+```python
+from config import linq
+
+linq.api_token              # Bearer token for Linq API
+linq.phone_number           # CareSupport's Linq Blue number
+linq.base_url               # API base URL (defaults to production)
+linq.webhook_signing_secret # HMAC secret for webhook verification
+```
+
+Location: `runtime/config.py:124`
+
+### Configuration File
+
+**Path:** `runtime/scripts/linq_config.json`
+
+```json
+{
+  "linq_api_token": "linq_sk_...",
+  "linq_phone": "+16517037981",
+  "base_url": "https://api.linqapp.com/api/partner/v3",
+  "webhook_signing_secret": "whsec_..."
+}
+```
+
+<Note>
+  Environment variables (`LINQ_API_TOKEN`, `LINQ_PHONE`, `LINQ_WEBHOOK_SECRET`) take precedence over the JSON file.
+</Note>
+
+Location: `runtime/config.py:115`
+
+## Twilio Configuration (Legacy)
+
+<Note>
+  Twilio is the **legacy transport**. Linq (iMessage-first) is now the primary messaging layer.
+</Note>
+
+### TwilioConfig Object
+
+```python
+from config import twilio
+
+twilio.account_sid   # Twilio account SID
+twilio.phone_number  # CareSupport's Twilio phone number
+twilio.phone_sid     # Twilio phone SID
+twilio.base_url      # Twilio API base URL
+```
+
+Location: `runtime/config.py:102`
+
+### Configuration File
+
+**Path:** `runtime/scripts/config.json`
+
+```json
+{
+  "twilio_account_sid": "AC...",
+  "caresupport_phone": "+16517037981",
+  "twilio_phone_sid": "PN..."
+}
+```
+
+Location: `runtime/config.py:93`
+
+## SDK Path Injection
+
+To add the SDK to Python's module search path:
+
+```python
+from config import ensure_sdk_path
+
+ensure_sdk_path()  # Adds {ROOT}/sdk to sys.path
+```
+
+Location: `runtime/config.py:166`
+
+## Usage Examples
+
+### Access Family Data
+
+```python
+from config import paths
+from pathlib import Path
+
+family_id = "kano"
+family_file = paths.family_file(family_id)
+
+if family_file.exists():
+    content = family_file.read_text()
+    print(f"Loaded {len(content)} bytes from {family_file}")
+```
+
+### Load Routing
+
+```python
+import json
+from config import paths
+
+family_id = "kano"
+routing_file = paths.phone_routing(family_id)
+
+if routing_file.exists():
+    with open(routing_file) as f:
+        routing = json.load(f)
+    members = routing.get("members", {})
+```
+
+### Create Conversation Log Entry
+
+```python
+from config import paths
+from datetime import datetime, timezone
+
+phone = "+16517037981"
+now = datetime.now(timezone.utc)
+month_file = paths.conversation_log(phone, now.strftime('%Y-%m'))
+month_file.parent.mkdir(parents=True, exist_ok=True)
+
+timestamp = now.strftime("%Y-%m-%d %H:%M:%S UTC")
+entry = f"[{timestamp}] [INBOUND] Can you help with tomorrow's schedule?"
+
+with open(month_file, "a") as f:
+    f.write(entry + "\n")
+```
+
+### Access PHI Audit Log
+
+```python
+from config import paths
+import json
+
+date_str = "2026-02-28"
+log_path = paths.phi_access_log(date_str)
+
+if log_path.exists():
+    with open(log_path) as f:
+        for line in f:
+            event = json.loads(line)
+            print(f"{event['timestamp']}: {event['event']} — {event.get('family_id', 'N/A')}")
+```
+
+### Load Learning Files
+
+```python
+from config import paths
+
+# Load global lessons
+if paths.lessons.exists():
+    lessons = [l for l in paths.lessons.read_text().split("\n") if l.startswith("- [")]
+    print(f"Loaded {len(lessons)} lessons")
+
+# Load capabilities
+if paths.capabilities.exists():
+    capabilities = paths.capabilities.read_text()
+    print(f"Capabilities: {len(capabilities)} bytes")
+
+# Load all skills
+if paths.skills_dir.exists():
+    for skill_file in sorted(paths.skills_dir.glob("*.md")):
+        skill_content = skill_file.read_text()
+        print(f"Skill: {skill_file.name} ({len(skill_content)} bytes)")
+```
+
+### Call Linq API
+
+```python
+import asyncio
+from linq_gateway import create_chat
+from config import linq
+
+print(f"Using Linq number: {linq.phone_number}")
+print(f"API base: {linq.base_url}")
+
+result = asyncio.run(create_chat(
+    to_phone="+16517037981",
+    initial_message="Welcome to CareSupport!",
+    preferred_service="iMessage"
+))
+
+if result["success"]:
+    print(f"Chat created: {result['chat_id']} via {result['service']}")
+```
+
+## Directory Structure
+
+When `CARESUPPORT_ROOT=/work`, the file system layout is:
+
+```
+/work/
+├── families/
+│   └── kano/
+│       ├── family.md
+│       ├── schedule.md
+│       ├── medications.md
+│       ├── routing.json
+│       ├── backups/
+│       │   └── family_20260228_143201.md
+│       ├── timeline/
+│       │   └── 2026-02.log
+│       ├── members/
+│       │   ├── liban.md
+│       │   └── marcus.md
+│       ├── staging/
+│       │   ├── reviews/
+│       │   ├── saved/
+│       │   └── proposals/
+│       └── pending_approvals.json
+├── conversations/
+│   ├── +16517037981/
+│   │   └── 2026-02.log
+│   └── chats/
+│       └── 550e8400-e29b-41d4-a716-446655440000/
+│           └── 2026-02.log
+├── logs/
+│   ├── 2026-02-28/
+│   │   └── phi_access.log
+│   ├── webhooks/
+│   │   └── 2026-02-28.jsonl
+│   └── reactions/
+│       └── 2026-02-28.jsonl
+├── protocols/
+│   ├── medications_PROTOCOL.md
+│   ├── scheduling_PROTOCOL.md
+│   └── ...
+├── sdk/
+└── agent_root.md
+```
+
+## Validation
+
+To verify your configuration:
+
+```python
+from config import paths, linq, twilio
+import os
+
+print(f"Root: {paths.root}")
+print(f"Families: {paths.families} (exists: {paths.families.exists()})")
+print(f"Linq phone: {linq.phone_number}")
+print(f"Linq API token set: {bool(linq.api_token)}")
+print(f"AI backend: {os.environ.get('CARESUPPORT_AI_BACKEND', 'openrouter')}")
+```
+
+## Related
+
+- [SMS Handler](/reference/sms-handler) — Uses `paths` for all file operations
+- [Linq Integration](/reference/linq-integration) — Uses `linq` config
+- [Enforcement Layer](/reference/enforcement-layer) — Uses `paths.logs` for PHI audit

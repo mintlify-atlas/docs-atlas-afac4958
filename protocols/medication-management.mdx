@@ -1,0 +1,613 @@
+---
+title: Medication Management Protocol
+description: Track, remind, update, and verify medications with clinical safety rules
+---
+
+# Medication Management Protocol
+
+<Warning>
+This is the **highest-stakes protocol** in CareSupport. It has hard safety rules that are mechanically enforced and never overridden by reasoning. Medication errors can be fatal.
+</Warning>
+
+## Overview
+
+The medication management protocol handles all medication-related coordination:
+- Tracking active medications
+- Sending reminders at scheduled times
+- Recording doses taken
+- Managing medication changes
+- Checking drug interactions
+- Tracking refills
+- Managing medication holds (surgery, hospitalization, emergencies)
+- Reconciling medications after hospital discharge
+
+**Safety level:** Critical  
+**Requires approval:** Yes (for changes only - recording doses taken does NOT require approval)
+
+## Hard Safety Rules
+
+These rules are **never overridden** for any reason:
+
+<Accordion title="Rule 1: Never update medications without prescriber order + primary caregiver confirmation">
+**Applies to:**
+- New medication additions
+- Dose changes
+- Discontinuations
+
+**Does NOT apply to:**
+- Recording "med taken"
+- Logging administration times
+
+**Important:** Full access ≠ medication change authority. A family member saying "increase the dose" is NOT sufficient. A prescriber must order it first.
+
+**Example of proper flow:**
+```
+Family: "Dr. Smith increased Mom's Lisinopril to 20mg"
+System: Verifies Lisinopril exists in active meds
+System: Checks interactions with new dose
+System: "I'd like to update Mom's file: Lisinopril 10mg → 20mg, 
+         per Dr. Smith. Reply YES to confirm."
+Primary: "YES"
+System: Updates meds + logs in history + notifies care team
+```
+</Accordion>
+
+<Accordion title="Rule 2: Always check drug interactions AND food-drug interactions">
+**Before confirming any medication change:**
+
+1. Call interaction checker with full active med list + new medication
+2. Check DIETARY interactions:
+   - MAO inhibitors + tyramine
+   - Warfarin + vitamin K
+   - Methotrexate + folate-rich foods
+   - Statins + grapefruit
+   - And many more
+3. Check allergy list in family file EVERY TIME. No exceptions.
+4. If interaction found → alert immediately, do NOT add to file
+
+**Example:**
+```
+System: Checking Lisinopril 20mg against active medications...
+System: ⚠️ INTERACTION FOUND: Lisinopril + potassium supplements 
+        can cause dangerous potassium levels. Dr. Smith needs to 
+        know Mom is taking potassium. Holding this change until 
+        we verify with the doctor.
+```
+</Accordion>
+
+<Accordion title="Rule 3: Always include drug name AND dose in every medication message">
+**Wrong:**
+- "Time for Mom's meds"
+- "Evening meds are due"
+
+**Correct:**
+- "Time for Mom's Lisinopril 10mg"
+- "Evening meds due: Metformin 500mg and Atorvastatin 20mg"
+
+**Why:** Prevents administration errors. Caregiver can verify they have the right medication and dose.
+</Accordion>
+
+<Accordion title="Rule 4: Never relay medication advice">
+**When family asks medication questions:**
+
+❌ "You can probably take an extra one"
+❌ "That side effect is normal, keep taking it"
+❌ "You should switch to taking it at night"
+
+✅ "That's a question for Dr. [Name]. Want me to message them?"
+✅ "I'll help you coordinate with the pharmacist about that"
+
+**The system coordinates. It does not prescribe.**
+</Accordion>
+
+<Accordion title="Rule 5: Adjust instruction depth by administrator">
+**If medication will be given by trained provider (RN, certified CNA):**
+- Standard reminders: "Time for [med] [dose]"
+
+**If medication will be given by family member or untrained caregiver:**
+- Include detailed guidance:
+  - Injection technique if applicable
+  - Timing with food ("Take with food" or "On empty stomach")
+  - What to watch for ("Monitor for dizziness for 1 hour")
+  - Special instructions ("Shake well" or "Don't crush")
+
+**System checks who is currently on-shift before sending reminders** to ensure appropriate detail level.
+</Accordion>
+
+<Accordion title="Rule 6: Side effect reports from cognitively impaired recipients are VALID">
+If the care recipient says:
+- "This makes me feel foggy"
+- "I don't like how this makes me feel"
+- Any symptom description
+
+**Action:** Log it and route to the prescriber. Cognitive impairment does NOT invalidate self-reported side effects.
+</Accordion>
+
+## When This Protocol Activates
+
+The protocol triggers automatically when messages contain:
+- Medication names (matched against active medications in care plan)
+- Keywords: meds, medicine, pill, prescription, refill, pharmacy, dose, taken, missed, side effect
+- Scheduled medication reminder time (from care schedules)
+
+## Workflows
+
+### Recording a Dose Taken
+
+The most common medication interaction - confirming a medication was administered.
+
+<Steps>
+  <Step title="Caregiver confirms">
+    Member texts: "done" or "taken" or "Lisinopril done"
+  </Step>
+  
+  <Step title="System matches medication">
+    Reads active medications from care plan
+    
+    Matches to scheduled medication for current time window (±2 hours)
+  </Step>
+  
+  <Step title="Updates care plan">
+    Updates "Last Confirmed" timestamp with current time
+  </Step>
+  
+  <Step title="Confirms to caregiver">
+    "Got it ✅ Lisinopril 10mg logged at 8:15am"
+    
+    If multiple meds were due: "Also the Metformin 500mg?"
+  </Step>
+</Steps>
+
+**Example conversation:**
+```
+System: Hi Sarah, time for Mom's Lisinopril 10mg. Reply DONE when taken ✅
+Sarah:  done
+System: Got it ✅ Lisinopril 10mg logged at 8:15am
+```
+
+### Missed Medication Alert
+
+When a medication isn't confirmed within the expected window:
+
+<Steps>
+  <Step title="Scheduled time + 1 hour passes">
+    Care schedule fires at [scheduled time + 1 hour] with no confirmation
+  </Step>
+  
+  <Step title="System identifies current caregiver">
+    Reads care plan → who is currently with care recipient?
+  </Step>
+  
+  <Step title="Sends gentle check-in">
+    "Mom's Lisinopril 10mg was due at 8am. Has it been taken?"
+  </Step>
+  
+  <Step title="Escalates if no response">
+    If no response in 30 minutes → escalates to primary caregiver
+    
+    Logs outcome in care plan Recent Updates
+  </Step>
+</Steps>
+
+**Example conversation:**
+```
+8:00am  System: Hi Sarah, time for Mom's Lisinopril 10mg...
+9:00am  [No response received]
+9:00am  System: Mom's Lisinopril 10mg was due at 8am. Has it been taken?
+9:05am  Sarah:  oh yes, gave it at 8:30, sorry!
+9:05am  System: Got it ✅ Logged at 8:30am. No worries!
+```
+
+### Medication Change from Provider
+
+When a doctor adjusts medication:
+
+<Steps>
+  <Step title="Family reports change">
+    "Dr. Smith increased Lisinopril to 20mg"
+  </Step>
+  
+  <Step title="System verifies existing medication">
+    Reads care plan → confirms Lisinopril exists in Active Medications
+  </Step>
+  
+  <Step title="Checks interactions">
+    Runs interaction check with new dose if dose-dependent interactions exist
+  </Step>
+  
+  <Step title="Drafts change for approval">
+    "I'd like to update Mom's file: Lisinopril 10mg → 20mg, per Dr. Smith. Reply YES to confirm."
+  </Step>
+  
+  <Step title="Waits for primary caregiver confirmation">
+    Parses YES/Y/yes/yeah/confirm/approved/ok → approve
+    
+    Parses NO/N/no/nope/cancel/wait → reject
+  </Step>
+  
+  <Step title="Updates and notifies">
+    Updates Active Medications
+    
+    Logs in Full Medication History with date and reason
+    
+    Notifies all team members with schedule+meds access or higher
+  </Step>
+</Steps>
+
+**Example conversation:**
+```
+Sarah:  Dr. Smith increased Mom's Lisinopril to 20mg
+System: I'd like to update Mom's file: Lisinopril 10mg → 20mg, 
+        per Dr. Smith. Reply YES to confirm.
+Sarah:  yes
+System: Updated ✅ Mom's Lisinopril changed to 20mg starting today.
+        [Also notifies other team members]
+```
+
+### Adding a New Medication
+
+When a new medication is prescribed:
+
+<Steps>
+  <Step title="Family reports new medication">
+    "Dr. Patel started Mom on Metformin 500mg twice daily"
+  </Step>
+  
+  <Step title="Runs comprehensive interaction check">
+    Checks new medication against ALL active medications
+    
+    Checks food-drug interactions
+    
+    Checks allergy list
+  </Step>
+  
+  <Step title="Collects full medication details">
+    - Medication name and dose
+    - Schedule (times to take)
+    - Prescriber name
+    - Reason for medication
+    - Special instructions
+  </Step>
+  
+  <Step title="Drafts addition for approval">
+    Shows complete medication details for confirmation
+  </Step>
+  
+  <Step title="On approval, sets up automation">
+    Adds to Active Medications with all fields
+    
+    Sets up medication reminders in care_schedules if recurring
+    
+    Notifies care team
+  </Step>
+</Steps>
+
+<Info>
+The system proactively asks for missing information: "What times should Mom take the Metformin?" or "Do you have the pharmacy information?"
+</Info>
+
+### Refill Tracking
+
+Proactive medication refill management:
+
+<Steps>
+  <Step title="Medication added or refilled">
+    System notes fill date and quantity when medication is added/refilled
+  </Step>
+  
+  <Step title="Calculates depletion date">
+    Formula: fill_date + (quantity / daily_doses)
+    
+    Example: 90 pills, 1 per day = 90 days until refill needed
+  </Step>
+  
+  <Step title="Sends reminder 7 days before depletion">
+    "Metformin refill due in 7 days. Want me to request from [pharmacy]?"
+  </Step>
+  
+  <Step title="Coordinates refill">
+    On confirmation → calls pharmacy refill system if available
+    
+    Logs in Recent Updates
+  </Step>
+  
+  <Step title="Adjusts if family reports low supply early">
+    If family says "running low" before calculated date, updates tracking
+  </Step>
+</Steps>
+
+**Example:**
+```
+System: Metformin refill due in 7 days. Want me to request from 
+        Main Street Pharmacy?
+Sarah:  yes please
+System: Requested. Pharmacy says it will be ready Thursday. 
+        Want a reminder to pick it up?
+```
+
+### Medication Hold
+
+When medications need to be temporarily stopped:
+
+<Warning>
+**Triggers:** ER/hospital visit, pre-surgery, provider instruction, safety event
+
+A hold requires EXPLICIT RELEASE - it NEVER auto-resumes.
+</Warning>
+
+<Steps>
+  <Step title="Hold triggered">
+    Family reports: "Mom is having surgery tomorrow, doctor said stop the blood thinner"
+  </Step>
+  
+  <Step title="System updates medication status">
+    Updates Active Medications: Status → "held (pre-surgery)"
+    
+    Adds to Medication Hold Log: medication, date, reason
+  </Step>
+  
+  <Step title="Suspends all reminders">
+    All automated reminders for held medications STOP immediately
+  </Step>
+  
+  <Step title="Notifies care team">
+    Alerts relevant team members about the hold
+  </Step>
+  
+  <Step title="Waits for explicit release">
+    Requires provider order OR primary caregiver confirmation to resume
+    
+    System will NOT prompt to resume - human must initiate
+  </Step>
+  
+  <Step title="On release, resumes carefully">
+    Updates Status → "active"
+    
+    Updates Hold Log with release date
+    
+    Resumes reminders
+    
+    Confirms first dose after release
+  </Step>
+</Steps>
+
+### Hospital-to-Home Medication Reconciliation
+
+One of the most critical medication safety workflows:
+
+<Warning>
+Medication errors during care transitions cause thousands of preventable hospitalizations annually. This workflow prevents that.
+</Warning>
+
+<Steps>
+  <Step title="At discharge, get complete medication list">
+    System prompts: "I need the FULL medication list from discharge papers. What changed?"
+  </Step>
+  
+  <Step title="Compare against home medications">
+    System identifies:
+    - **NEW** medications (added during hospitalization)
+    - **CHANGED** medications (dose adjustments)
+    - **HELD** medications (need explicit release before resuming)
+    - **DISCONTINUED** medications (stopped)
+  </Step>
+  
+  <Step title="Check interactions on new combinations">
+    For each new medication: runs interaction check against ALL home medications
+    
+    Flags any concerning combinations immediately
+  </Step>
+  
+  <Step title="Verify administration logistics">
+    Checks: who will administer each medication at home?
+    
+    Especially important for injections, IVs, or complex administration
+  </Step>
+  
+  <Step title="Update care plan with reconciled list">
+    Updates complete medication list with all changes documented
+  </Step>
+  
+  <Step title="Notify entire care team">
+    ALL team members with relevant medication access receive update about changes
+  </Step>
+  
+  <Step title="Resume home medication reminders">
+    Restarts automated reminders with updated schedule
+  </Step>
+</Steps>
+
+**Example reconciliation:**
+```
+System: Welcome home! Before I resume medication reminders, I need 
+        the full list from discharge. What medications is Mom taking now?
+        
+Sarah:  They sent home: Lisinopril 20mg (increased), Metformin 500mg 
+        (same), and new one called Atorvastatin 40mg for cholesterol
+        
+System: Got it. Let me verify against the home medications:
+        
+        CHANGED: Lisinopril 10mg → 20mg
+        SAME: Metformin 500mg twice daily
+        NEW: Atorvastatin 40mg once daily
+        
+        Checking interactions with new combination...
+        ✓ No interactions found
+        
+        Times for the Atorvastatin?
+        
+Sarah:  Evening with dinner
+        
+System: Perfect. I'd like to update Mom's medications with these 
+        changes per hospital discharge. Reply YES to confirm.
+        
+Sarah:  YES
+        
+System: Updated ✅ 
+        
+        Resuming medication reminders with new schedule:
+        - Morning: Metformin 500mg
+        - Evening: Lisinopril 20mg, Metformin 500mg, Atorvastatin 40mg
+        
+        First reminder will be tonight at 6pm.
+```
+
+### Location Transition Medication Check
+
+When care recipient moves between locations:
+
+<Steps>
+  <Step title="System proactively asks about medication logistics">
+    "Will Mom have her 2pm dose with her at the day program?"
+  </Step>
+  
+  <Step title="If medications need to travel">
+    Reminds about:
+    - Proper labeling
+    - Administration instructions
+    - Who will give the medication
+  </Step>
+  
+  <Step title="If someone else will administer">
+    Verifies they know:
+    - Medication name and dose
+    - Timing
+    - Any special instructions
+  </Step>
+</Steps>
+
+**Example:**
+```
+Sarah:  Mom is going to adult day care tomorrow 9am-3pm
+        
+System: Got it, added to schedule. Will Mom have her 2pm Metformin 
+        with her at day care?
+        
+Sarah:  Oh good catch! I'll send it with her
+        
+System: Perfect. Make sure it's labeled with her name and the dose. 
+        Will the day care staff give it to her?
+        
+Sarah:  Yes they have a nurse
+        
+System: Great. I'll send you a reminder at 8:30am to pack it.
+```
+
+## Message Templates
+
+Standard message formats used by the protocol:
+
+```
+Reminder:
+"Hi {caregiver_name}, time for {recipient}'s {medication} {dose}. 
+Reply DONE when taken ✅"
+
+Missed:
+"{recipient}'s {medication} {dose} was due at {time}. Has it been taken?"
+
+Change:
+"Updating {recipient}'s meds: {old} → {new}, per Dr. {prescriber}. 
+Reply YES to confirm."
+
+Confirmed:
+"Got it ✅ {medication} {dose} logged at {time}"
+
+Refill:
+"{medication} refill due in {days} days. Want me to request from {pharmacy}?"
+
+Interaction Alert:
+"⚠️ INTERACTION FOUND: {medication1} + {medication2} can cause {risk}. 
+Dr. {name} needs to verify this is safe. Holding this change until we confirm."
+```
+
+## Integration with Other Protocols
+
+Medication management works with:
+
+- **Emergency Response**: Medication holds during emergency situations
+- **Hospitalization**: Automatic suspension during inpatient stay + mandatory reconciliation at discharge
+- **Care Plan Updates**: All medication changes logged with timestamps and attribution
+- **Provider Communication**: Routes medication questions to prescribers, prepares med lists for visits
+- **Care Schedules**: Creates and manages medication reminder schedules
+- **Daily Check-In**: Reports medication compliance in daily summaries
+
+## For Caregivers
+
+### Quick Actions
+
+**Record a dose:**
+- Text "done" or "taken"
+- Or text the medication name: "Lisinopril done"
+
+**Report a change:**
+- "Dr. Smith changed Mom's Lisinopril to 20mg"
+- System will verify and ask for confirmation
+
+**Ask about a medication:**
+- "What time is the evening Metformin due?"
+- "Did Mom take her morning meds?"
+
+**Report a side effect:**
+- "Mom feels dizzy after taking the Lisinopril"
+- System logs it and offers to contact prescriber
+
+**Request refill:**
+- "Mom is running low on Metformin"
+- System can coordinate with pharmacy
+
+### What Gets Confirmed vs What Happens Automatically
+
+**Requires confirmation:**
+- New medication additions
+- Dose changes
+- Discontinuations
+- Medication hold releases
+
+**Happens automatically (no confirmation needed):**
+- Recording doses taken
+- Missed medication alerts
+- Refill reminders
+- Interaction checks
+
+---
+
+## Why This Matters
+
+Medication management is the highest-stakes coordination work in caregiving:
+- **60% of older adults** take 5+ medications daily
+- **50% of medications** are not taken as prescribed
+- **Medication errors** cause 1.3 million+ emergency visits annually in the US
+- **Care transitions** (hospital to home) are the highest-risk time for medication errors
+
+This protocol exists to prevent medication errors through:
+- **Clear communication** (always include drug name and dose)
+- **Interaction checking** (before every change)
+- **Confirmation loops** (prescriber + caregiver for changes)
+- **Proactive tracking** (refills, missed doses, patterns)
+- **Transition safety** (hospital reconciliation, location changes)
+
+<Info>
+**Clinical foundation:** This protocol incorporates evidence-based medication safety practices from the Institute for Healthcare Improvement and the Institute for Safe Medication Practices.
+</Info>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Set Up Medications" icon="pills" href="/getting-started/medications">
+    Add medications to your care plan
+  </Card>
+  
+  <Card title="Care Schedules" icon="clock" href="/protocols/scheduling">
+    Understand how medication reminders are scheduled
+  </Card>
+  
+  <Card title="Emergency Response" icon="circle-exclamation" href="/protocols/escalations">
+    Learn how medication holds work during emergencies
+  </Card>
+  
+  <Card title="Provider Communication" icon="user-doctor" href="/guides/providers">
+    Route medication questions to prescribers
+  </Card>
+</CardGroup>

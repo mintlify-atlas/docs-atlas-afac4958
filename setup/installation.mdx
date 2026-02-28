@@ -1,0 +1,292 @@
+---
+title: Installation
+description: Install CareSupport dependencies and configure API keys
+---
+
+CareSupport is a Python-based care coordination system that communicates via SMS/iMessage. This guide covers complete installation and dependency setup.
+
+## System Requirements
+
+- **Python**: 3.9 or higher
+- **Operating System**: Linux, macOS, or Windows (WSL recommended)
+- **Terminal**: Bash-compatible shell for running scripts
+- **Network**: Outbound HTTPS access for API calls
+
+## Python Dependencies
+
+CareSupport uses a minimal set of production-grade Python libraries:
+
+<CodeGroup>
+```bash Install via pip
+pip install openai anthropic python-dotenv
+```
+
+```bash Install in virtual environment (recommended)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install openai anthropic python-dotenv
+```
+</CodeGroup>
+
+### Core Dependencies
+
+| Package | Purpose | Version |
+|---------|---------|--------|
+| `openai` | OpenRouter API client | Latest |
+| `anthropic` | Direct Anthropic API access | Latest |
+| `python-dotenv` | Environment variable management | Latest |
+
+<Note>
+The `openai` package is used for **OpenRouter** API access (not OpenAI directly). CareSupport routes through OpenRouter to access Claude Haiku and other models.
+</Note>
+
+## API Keys and Accounts
+
+CareSupport requires three types of API credentials:
+
+### 1. AI Provider (Required)
+
+Choose **one** of the following:
+
+<Tabs>
+  <Tab title="OpenRouter (Recommended)">
+    OpenRouter provides access to multiple AI models including Claude, with usage-based pricing.
+    
+    **Setup:**
+    1. Create an account at [openrouter.ai](https://openrouter.ai)
+    2. Generate an API key from your dashboard
+    3. Add to your `.env` file:
+    
+    ```bash
+    OPENROUTER_API_KEY=sk-or-v1-...
+    CARESUPPORT_AI_BACKEND=openrouter
+    ```
+    
+    **Default Model:** `anthropic/claude-haiku-4-5`
+  </Tab>
+  
+  <Tab title="Anthropic Direct">
+    Use Anthropic's API directly for Claude access.
+    
+    **Setup:**
+    1. Create an account at [console.anthropic.com](https://console.anthropic.com)
+    2. Generate an API key
+    3. Add to your `.env` file:
+    
+    ```bash
+    ANTHROPIC_API_KEY=sk-ant-...
+    CARESUPPORT_AI_BACKEND=anthropic
+    ```
+    
+    **Default Model:** `claude-haiku-4-5`
+  </Tab>
+</Tabs>
+
+### 2. Linq API (Required for iMessage/SMS)
+
+Linq provides the messaging infrastructure for iMessage-first communication.
+
+<Steps>
+  <Step title="Create Linq Account">
+    Sign up at [linqapp.com](https://linqapp.com) and request a Partner API account.
+  </Step>
+  
+  <Step title="Provision a Linq Blue Line">
+    Get a dedicated phone number for CareSupport. This will be your primary messaging number.
+  </Step>
+  
+  <Step title="Generate API Token">
+    In the Linq dashboard:
+    - Click the code icon (`</>`) in the left toolbar
+    - Generate a new API token
+    - Copy the token (you won't see it again)
+  </Step>
+  
+  <Step title="Add to Environment">
+    Add these credentials to your `.env` file:
+    
+    ```bash
+    LINQ_API_TOKEN=your_linq_api_token_here
+    LINQ_PHONE=+1XXXXXXXXXX
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+**Linq Partner API** is different from the consumer app. Ensure you have a Partner account with API access.
+</Warning>
+
+### 3. Webhook Secret (Optional, for Real-Time)
+
+If you want real-time message delivery instead of polling:
+
+```bash
+# Generate webhook subscription (returns signing secret)
+python runtime/scripts/linq_gateway.py webhooks
+
+# Add secret to .env
+LINQ_WEBHOOK_SECRET=your_webhook_signing_secret
+```
+
+See [Linq Integration](/reference/linq-integration) for webhook configuration details.
+
+## Environment Configuration
+
+Create a `.env` file in your project root:
+
+```bash .env
+# ─── AI Provider ────────────────────────────────────
+# Choose one: openrouter or anthropic
+OPENROUTER_API_KEY=sk-or-v1-...
+# ANTHROPIC_API_KEY=sk-ant-...
+CARESUPPORT_AI_BACKEND=openrouter
+
+# ─── Linq Messaging ─────────────────────────────────
+LINQ_API_TOKEN=your_linq_token_here
+LINQ_PHONE=+1XXXXXXXXXX
+LINQ_WEBHOOK_SECRET=your_webhook_secret
+
+# ─── Optional Settings ──────────────────────────────
+# Data directory (defaults to /work)
+CARESUPPORT_ROOT=/work
+```
+
+### Security Best Practices
+
+<Warning>
+**Critical:** Never commit your `.env` file to version control.
+</Warning>
+
+Add to `.gitignore`:
+
+```bash .gitignore
+.env
+*.env
+.env.*
+runtime/scripts/linq_config.json
+```
+
+## Verify Installation
+
+Test each component:
+
+<CodeGroup>
+```bash Test Python Dependencies
+python -c "import openai, anthropic, dotenv; print('✓ All packages installed')"
+```
+
+```bash Test Linq Connection
+python runtime/scripts/linq_gateway.py phones
+```
+
+```bash Test AI Backend (Dry Run)
+python runtime/scripts/sms_handler.py \
+  --from "+15555555555" \
+  --body "test" \
+  --dry-run
+```
+</CodeGroup>
+
+Expected outputs:
+
+- **Python test**: `✓ All packages installed`
+- **Linq test**: List of phone numbers with status
+- **AI test**: JSON response with `reply_text` field
+
+## Directory Structure
+
+After installation, your directory structure should look like:
+
+```
+caresupport/
+├── .env                          # Your environment variables (not in git)
+├── SOUL.md                       # Agent identity and voice
+├── runtime/
+│   ├── config.py                 # Central configuration
+│   ├── scripts/
+│   │   ├── sms_handler.py        # Core message processor
+│   │   ├── linq_gateway.py       # Linq API client
+│   │   ├── poll_inbound.py       # Message polling loop
+│   │   └── linq_config.json      # Linq credentials (not in git)
+│   ├── enforcement/              # Safety and compliance
+│   └── learning/                 # Agent capabilities and lessons
+└── fork/
+    └── workspace/
+        ├── families/             # Family data (created during setup)
+        └── protocols/            # Care protocols
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" href="/setup/configuration" icon="gear">
+    Configure runtime paths and behavior
+  </Card>
+  <Card title="Create First Family" href="/setup/first-family" icon="users">
+    Set up your first family directory
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="ModuleNotFoundError: No module named 'openai'">
+    You need to install the Python dependencies:
+    
+    ```bash
+    pip install openai anthropic python-dotenv
+    ```
+    
+    If using a virtual environment, ensure it's activated before installing.
+  </Accordion>
+
+  <Accordion title="Linq API returns 401 Unauthorized">
+    **Possible causes:**
+    - API token is incorrect or expired
+    - Token not set in both `.env` AND `linq_config.json`
+    - Using consumer account instead of Partner API account
+    
+    **Fix:**
+    1. Verify token in Linq dashboard
+    2. Check both `.env` and `runtime/scripts/linq_config.json`
+    3. Ensure you have Partner API access (not just consumer app)
+  </Accordion>
+
+  <Accordion title="ImportError: cannot import name 'paths' from 'config'">
+    The `runtime/config.py` file needs the `CARESUPPORT_ROOT` environment variable:
+    
+    ```bash
+    export CARESUPPORT_ROOT=/work  # or your preferred path
+    ```
+    
+    Or add to your `.env` file and ensure it's loaded.
+  </Accordion>
+
+  <Accordion title="Which AI backend should I use?">
+    **Use OpenRouter if:**
+    - You want access to multiple models
+    - You prefer usage-based pricing
+    - You're just getting started
+    
+    **Use Anthropic direct if:**
+    - You only use Claude models
+    - You have existing Anthropic credits
+    - You want to minimize API hops
+    
+    Both backends use the same models and produce identical results.
+  </Accordion>
+
+  <Accordion title="Do I need both OPENROUTER_API_KEY and ANTHROPIC_API_KEY?">
+    No. Set only the one you're using:
+    
+    ```bash
+    # For OpenRouter
+    OPENROUTER_API_KEY=sk-or-v1-...
+    CARESUPPORT_AI_BACKEND=openrouter
+    
+    # OR for Anthropic direct
+    ANTHROPIC_API_KEY=sk-ant-...
+    CARESUPPORT_AI_BACKEND=anthropic
+    ```
+  </Accordion>
+</AccordionGroup>

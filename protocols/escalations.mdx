@@ -1,0 +1,640 @@
+---
+title: Emergency Response & Escalations
+description: Emergency situations, escalation chains, and hospitalization management
+---
+
+# Emergency Response & Escalations
+
+<Warning>
+This is a **critical safety protocol**. It activates IMMEDIATELY on emergency keywords without waiting for confirmation. False positives are acceptable. False negatives are not.
+</Warning>
+
+## Emergency Response Protocol
+
+Handle urgent and life-threatening situations.
+
+**Safety level:** Critical  
+**Requires approval:** No (emergencies don't wait for approval)
+
+### Hard Safety Rules
+
+These rules are **never overridden**:
+
+<Accordion title="Rule 1: Respond within ONE message, IMMEDIATELY">
+**No:**
+- "Let me check the care plan first..."
+- "Loading information about falls..."
+- Waiting to gather context
+
+**Yes:**
+- Act immediately
+- Gather context after responding
+
+**Why:** In emergencies, every second matters. The system must respond in the first message with actionable guidance.
+</Accordion>
+
+<Accordion title="Rule 2: Emergency keywords trigger this protocol unconditionally">
+**Even if ambiguous:** "mom fell" → emergency protocol
+
+**False positives are acceptable. False negatives are not.**
+
+Better to activate emergency response unnecessarily than miss a real emergency.
+
+**Compound phrase exceptions:**
+- "fell asleep" → NOT a fall emergency
+- "taking my breath away" → NOT breathing emergency  
+- "bleeding heart" (figurative) → NOT bleeding emergency
+- "fall colors" / "fall season" → NOT a fall
+
+When keyword appears in clearly non-emergency compound phrase, ask: "Just to be safe - when you said [phrase], is Mom OK?"
+</Accordion>
+
+<Accordion title="Rule 3: Notify ALL full-access members simultaneously">
+**Don't wait** for one to respond before notifying others
+
+**Parallel notification** to all who need to know
+
+**Why:** In an emergency, family members may be in different locations with different abilities to respond. Cast a wide net.
+</Accordion>
+
+<Accordion title="Rule 4: Never tell someone NOT to call 911">
+**If asked:** "Should I call 911?"
+
+**Always respond:** "Yes, call 911 now. I'm notifying the family."
+
+**Never:** "Let's wait and see" or "Try [something else] first"
+
+**Why:** 911 dispatchers are trained to triage. It's better to call and have them say it's not needed than to delay calling when it is needed.
+</Accordion>
+
+### Emergency Keywords
+
+These words/phrases trigger immediate emergency response:
+
+```
+fall, fell, fallen
+chest pain, chest hurts
+can't breathe, breathing, short of breath
+choking
+unresponsive, won't wake, unconscious
+seizure, convulsion  
+bleeding, blood
+stroke, face drooping, arm weakness, speech
+help, emergency, 911
+allergic reaction, swelling, hives
+```
+
+### Emergency Access Override
+
+<Info>
+During an active emergency, the on-scene caregiver receives ALL medically-relevant information regardless of their normal access level.
+</Info>
+
+This includes:
+- Medications (full list with doses)
+- Allergies (drug and non-drug)
+- Blood type
+- Conditions
+- Emergency contacts
+
+**Documentation:** System logs "Emergency access override for [member] during [event] at [time]" in PHI access log
+
+**Duration:** Override ends when emergency is resolved
+
+**Notification scope:** For Tier 1 emergencies, ALL care team members at ALL access levels are notified. Everyone needs to know there's a life-threatening situation.
+
+---
+
+## Three-Tier Emergency Response
+
+### Tier 1: Life-Threatening (Call 911)
+
+**Triggers:**
+- Chest pain
+- Can't breathe
+- Unresponsive
+- Seizure
+- Stroke symptoms (face/arm/speech)
+- Choking
+- Severe bleeding
+- Allergic reaction
+
+**Immediate response (< 10 seconds):**
+
+<Steps>
+  <Step title="First message">
+    ```
+    Call 911 now.
+    Address: [home address from care plan]
+    I'm notifying [primary] and [secondary].
+    Stay with [recipient]. What's happening right now?
+    ```
+  </Step>
+  
+  <Step title="Simultaneously notify all full-access members">
+    "🚨 URGENT: [who reported] reports [situation] with [recipient]. 911 may be needed. [address]"
+  </Step>
+  
+  <Step title="If provider phone exists and during business hours">
+    Notify primary physician
+  </Step>
+  
+  <Step title="Log in care plan">
+    Recent Updates + Urgent Notes with full details and timeline
+  </Step>
+</Steps>
+
+**Example scenario:**
+```
+2:15pm  Maria:  help mom cant breathe
+
+2:15pm  System: Call 911 now.
+                Address: 123 Oak Street
+                I'm notifying Sarah and John.
+                Stay with Mrs. Johnson. What's happening right now?
+                
+2:15pm  [To Sarah]: 🚨 URGENT: Maria reports Mrs. Johnson can't 
+                     breathe. 911 may be needed. 123 Oak Street
+                     
+2:15pm  [To John]: 🚨 URGENT: Maria reports Mrs. Johnson can't 
+                    breathe. 911 may be needed. 123 Oak Street
+                    
+2:16pm  Maria:  she is breathing but very short of breath, 
+                wheezing
+                
+2:16pm  System: Keep her sitting upright. Paramedics are on the way. 
+                Does she have her rescue inhaler?
+                
+                [Also sends to Sarah and John]
+```
+
+### Tier 2: Urgent, Not Life-Threatening
+
+**Triggers:**
+- Fall (without loss of consciousness)
+- Missed multiple medications
+- Sudden confusion
+- Mild allergic reaction
+
+**Immediate response:**
+
+<Steps>
+  <Step title="First message">
+    ```
+    I hear you. Is [recipient] conscious and breathing normally?
+    I'm letting [primary caregiver] know right now.
+    ```
+  </Step>
+  
+  <Step title="Notify primary caregiver with details">
+    Full situation summary sent immediately
+  </Step>
+  
+  <Step title="Ask reporter for more details">
+    "Can [recipient] move? Any pain? What happened?"
+  </Step>
+  
+  <Step title="Based on response, either escalate to Tier 1 or proceed with care guidance">
+    If situation worsens → immediately escalate to Tier 1
+    
+    If stable → coordinate appropriate care response
+  </Step>
+  
+  <Step title="Log everything in care plan">
+    Complete timeline in Recent Updates
+  </Step>
+</Steps>
+
+**Example scenario:**
+```
+10:30am Maria:  mom fell getting out of bed
+
+10:30am System: I hear you. Is she conscious and breathing normally?
+                I'm letting Sarah know right now.
+                
+10:30am [To Sarah]: Maria reports Mrs. Johnson fell getting 
+                     out of bed. Checking details now.
+                     
+10:31am Maria:  yes shes awake and talking but her hip hurts
+
+10:31am System: Can she move her legs? Did she hit her head?
+                
+10:31am Maria:  she can move legs. no head hit. just hip pain
+
+10:31am System: [To Maria] Keep her still. Don't let her try to 
+                 stand up until Sarah gets there.
+                 
+                [To Sarah] Mrs. Johnson fell getting out of bed. 
+                Conscious, talking, moving legs. Hip pain. No head 
+                injury. Maria is with her. May need doctor visit 
+                to check hip.
+                
+10:32am Sarah:  on my way, 10 minutes. maria stay with her
+
+10:32am System: [To Maria] Sarah is 10 minutes away. Stay with 
+                 Mrs. Johnson and keep her comfortable.
+```
+
+### Tier 3: Concerning, Monitor
+
+**Triggers:**
+- "help" (without other keywords)
+- Unusual behavior report
+- Repeated wellness check failures
+
+**Response:**
+
+<Steps>
+  <Step title="Ask for more information">
+    "Tell me more about what's going on with [recipient]."
+  </Step>
+  
+  <Step title="Assess based on response">
+    Could reveal Tier 1 or Tier 2 situation
+  </Step>
+  
+  <Step title="Escalate if warranted">
+    Bump up to appropriate tier based on details
+  </Step>
+  
+  <Step title="Notify primary caregiver with summary">
+    Even if not emergency, keep them informed
+  </Step>
+  
+  <Step title="Add to Urgent Notes if ongoing concern">
+    Track for pattern monitoring
+  </Step>
+</Steps>
+
+---
+
+## Clinical Knowledge Rule
+
+<Warning>
+**Do NOT rely on general medical knowledge for time-critical actions.**
+
+Condition-specific emergency guidance MUST be stored IN the care plan Emergency Protocols section, not left to inference.
+</Warning>
+
+**Examples of what must be documented in care plan:**
+
+- **CHF patient:** "Do NOT lay flat. Keep upright."
+- **Blood thinner patient:** "Tell 911 which anticoagulant and dose."
+- **Diabetes patient:** "If unconscious and low blood sugar suspected, DO NOT give food by mouth."
+- **Epilepsy patient:** "Do not restrain. Clear area. Time the seizure."
+- **Sulfa allergy:** "Bactrim, Septra, sulfasalazine are contraindicated."
+
+**When onboarding a family:** Populate Emergency Protocols with condition-specific clinical actions based on care recipient's conditions. This is a CRITICAL onboarding step, not optional.
+
+**Example in care plan:**
+```
+## Emergency Protocols
+
+### Heart Failure
+- If shortness of breath: Keep upright, DO NOT lay flat
+- Tell 911: "Heart failure patient on Lasix 40mg daily"
+- Watch for: Swelling, rapid weight gain, increased fatigue
+
+### Diabetes  
+- If confused/unconscious: Check blood sugar if possible
+- DO NOT give food/drink by mouth if unconscious
+- Tell 911: "Diabetic, takes Metformin 500mg twice daily"
+- Keep glucose tablets/juice nearby
+
+### Allergies
+- Penicillin → rash, hives (moderate)
+- Sulfa drugs → severe reaction, difficulty breathing
+- Tell 911 about sulfa allergy immediately if EMS needed
+```
+
+---
+
+## Post-Surgical Emergency Guidance
+
+For patients recovering from surgery:
+
+<Info>
+If the fall/injury involves the SURGICAL SITE:
+
+**Contact the SURGEON first** (not 911), UNLESS there is:
+- Head injury
+- Loss of consciousness  
+- Uncontrolled bleeding
+- Severe acute distress
+
+In those cases → call 911 immediately
+</Info>
+
+**Provide surgeon with:**
+- Surgery date
+- Current medications (especially blood thinners)
+- Description of the event
+
+**If surgeon says ER needed:**
+- Call 911
+- Relay surgeon's assessment to paramedics
+
+---
+
+## After Emergency
+
+<Steps>
+  <Step title="Update care plan with outcome">
+    Remove from Urgent Notes once resolved
+    
+    Add comprehensive summary to Recent Updates with full timeline
+  </Step>
+  
+  <Step title="If hospitalized, trigger hospitalization protocol">
+    Updates This Week schedule
+    
+    Suspends home care
+    
+    See Hospitalization Management below
+  </Step>
+  
+  <Step title="Follow up with reporter within 2 hours">
+    "Checking in - how is [recipient] doing after earlier? Any updates?"
+  </Step>
+  
+  <Step title="Flag protocol updates if needed">
+    If emergency revealed gaps in protocols or contacts → flag for primary caregiver to review
+  </Step>
+</Steps>
+
+---
+
+## Hospitalization Management Protocol
+
+Meta-protocol for hospital admission, inpatient stay, and discharge.
+
+**Safety level:** Critical  
+**Requires approval:** Yes (discharge medication changes need confirmation)
+
+### Hard Safety Rules
+
+<Warning>
+1. **SUSPEND all home medication reminders during inpatient stay**
+   - Hospital manages medications
+   - Double-dosing from home reminders + hospital administration is dangerous
+   - Add all medications to Medication Hold Log with reason: "Hospitalized"
+
+2. **Verify admission status: "admitted" not "observation"**
+   - Observation is outpatient - insurance covers differently
+   - Can mean thousands more in out-of-pocket costs
+   - Medicare requires 3-day inpatient stay for SNF coverage
+
+3. **Medication reconciliation at discharge is MANDATORY**
+   - Before resuming home medication reminders
+   - Must reconcile ALL medication changes
+   - See medication-management protocol for full workflow
+</Warning>
+
+### Phase 1: Admission
+
+**Immediate actions within first message exchange:**
+
+<Steps>
+  <Step title="Collect essential information">
+    - Hospital name
+    - Room number (when available)
+    - Attending physician
+    - Floor nurse / nursing station phone
+    - Diagnosis (if known)
+  </Step>
+  
+  <Step title="Coordinate care transitions">
+    - SUSPEND all home medication reminders → add to Hold Log
+    - PAUSE home care staff schedule → notify aides
+    - CANCEL/RESCHEDULE all upcoming home appointments
+    - NOTIFY all care team members (access-appropriate)
+  </Step>
+  
+  <Step title="Provide hospital staff with care information">
+    Via on-site family member:
+    - Full medication list with doses and schedules
+    - ALL allergies (drug + non-drug) with severity and reaction type
+    - Insurance information (plan, member ID)
+    - Primary physician name and phone
+    - Emergency contacts
+    - Advance directives status (if documented)
+  </Step>
+  
+  <Step title="Update care plan">
+    - Urgent Notes: "⚠️ HOSPITALIZED - [hospital], admitted [date]. [diagnosis]."
+    - This Week: all entries replaced with hospital status
+    - Recent Updates: timestamped admission entry
+  </Step>
+</Steps>
+
+**Example:**
+```
+Sarah:  Mom is being admitted to General Hospital, heart failure
+        
+System: I'm handling the coordination. Here's what I'm doing:
+        
+        ✓ Pausing all home medication reminders
+        ✓ Notifying home care aides about pause  
+        ✓ Canceling Thursday's PT appointment
+        ✓ Letting family know
+        
+        Focus on being with Mom. 
+        
+        When you have a moment, the hospital needs:
+        - Current medication list (reply MEDS and I'll send it)
+        - Insurance card (Medicare + Blue Cross secondary)
+        - Allergies: Penicillin, Sulfa drugs
+        
+        I'll check in with you tomorrow morning.
+```
+
+### Phase 2: Inpatient Stay
+
+**Daily during hospitalization:**
+
+<Steps>
+  <Step title="Morning check-in with family member at hospital">
+    "How is Mom this morning? Any updates from the medical team?"
+  </Step>
+  
+  <Step title="Route information between family members">
+    On-site family → remote family (access-filtered)
+    
+    Maintain consistent, calibrated messaging (avoid both minimizing and catastrophizing)
+  </Step>
+  
+  <Step title="Track important information">
+    - Diagnosis updates
+    - Treatment plan changes
+    - Expected discharge date
+    - Any new medications started in hospital
+  </Step>
+  
+  <Step title="Continue managing non-hospital care needs">
+    - Update providers not involved in hospitalization
+    - Handle insurance questions
+    - Coordinate visitors/family logistics
+  </Step>
+</Steps>
+
+### Phase 3: Discharge
+
+**When discharge is confirmed:**
+
+<Steps>
+  <Step title="CRITICAL: Medication reconciliation">
+    See medication-management protocol for full workflow
+    
+    Must identify:
+    - What's NEW (added during hospitalization)
+    - What CHANGED (dose adjustments)
+    - What was HELD (needs explicit release)
+    - What was DISCONTINUED
+    
+    Run interaction checks on ALL new combinations
+    
+    Get primary caregiver confirmation for complete updated list
+  </Step>
+  
+  <Step title="Resume home care">
+    - Notify home care staff with updated care requirements
+    - Prepare discharge summary for returning aides:
+      - New medications
+      - New restrictions
+      - New equipment needs
+      - Activity limitations
+    - Resume medication reminders with updated schedule
+    - Resume home care staff shifts
+  </Step>
+  
+  <Step title="Schedule follow-ups">
+    - Discharge follow-up with hospitalist/attending
+    - Follow-up with primary physician
+    - Specialist follow-ups as ordered
+    - Lab work as ordered
+    - Home health/PT if prescribed
+  </Step>
+  
+  <Step title="Update care plan comprehensively">
+    - Remove hospitalization from Urgent Notes
+    - Add comprehensive discharge summary to Recent Updates
+    - Update Active Medications with reconciled list
+    - Release medication holds in Hold Log
+    - Update This Week with new schedule
+    - Add hospitalization summary to Past Appointments
+  </Step>
+</Steps>
+
+**Example discharge conversation:**
+```
+Sarah:  Good news - Mom is being discharged today!
+        
+System: Great news! Before she comes home, I need the medication 
+        list from discharge papers. What changed?
+        
+Sarah:  [Sends photo of discharge instructions]
+        
+System: Reading... Got it. Let me verify:
+        
+        NEW: Lasix 40mg daily (diuretic for heart failure)
+        INCREASED: Lisinopril 10mg → 20mg
+        SAME: Metformin 500mg twice daily
+        DISCONTINUED: None
+        
+        Checking interactions with new combination...
+        ✓ No interactions found
+        
+        Times for the Lasix?
+        
+Sarah:  Morning with breakfast
+        
+System: Perfect. I'd like to update Mom's medications per 
+        hospital discharge. Reply YES to confirm.
+        
+Sarah:  YES
+        
+System: Updated ✅
+        
+        Resuming medication reminders:
+        - Morning 8am: Lasix 40mg, Metformin 500mg
+        - Evening 8pm: Lisinopril 20mg, Metformin 500mg
+        
+        I've notified home care aides about the changes.
+        Maria's shift resumes tomorrow at 9am.
+        
+        When is the follow-up with Dr. Smith?
+        
+Sarah:  Next week Thursday at 10am
+        
+System: Added to schedule ✅ I'll send reminders.
+```
+
+---
+
+## Message Templates
+
+```
+Tier 1:
+"🚨 Call 911 now. Address: {address}. I'm notifying {family}. 
+Stay with {recipient}."
+
+Notify:
+"🚨 URGENT: {reporter} reports {situation} with {recipient}. {address}"
+
+Tier 2:
+"I hear you. Is {recipient} conscious and breathing? 
+Letting {primary} know now."
+
+Follow-up:
+"Checking in - how is {recipient} doing after earlier? Any updates?"
+
+Admission:
+"I'm handling the coordination. [Steps being taken]. 
+Focus on being with {recipient}."
+
+Discharge:
+"Great news! Before {recipient} comes home, I need the medication 
+list from discharge. What changed?"
+```
+
+---
+
+## Why This Matters
+
+**Emergency response:**
+- **Every 5 minutes** delay in stroke treatment increases disability risk by 10%
+- **Falls** are the leading cause of injury death for older adults
+- **Medication reconciliation errors** cause 20% of adverse drug events
+
+**Hospitalization:**
+- **40% of medication errors** occur during care transitions
+- **Observation status** can cost $5,000+ more than admission for same care
+- **Hospital readmissions** within 30 days affect 20% of Medicare patients
+
+This protocol exists to:
+- Minimize emergency response time
+- Ensure appropriate escalation
+- Prevent medication errors during transitions
+- Coordinate care during high-stress situations
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Emergency Preparation" icon="kit-medical" href="/guides/emergency-prep">
+    Set up emergency protocols for your family
+  </Card>
+  
+  <Card title="Medication Safety" icon="pills" href="/protocols/medication-management">
+    Understand medication holds and reconciliation
+  </Card>
+  
+  <Card title="Care Team Setup" icon="users" href="/getting-started/care-team">
+    Configure who gets notified in emergencies
+  </Card>
+  
+  <Card title="Provider Communication" icon="user-doctor" href="/guides/providers">
+    Coordinate with medical team
+  </Card>
+</CardGroup>

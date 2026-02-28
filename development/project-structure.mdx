@@ -1,0 +1,464 @@
+---
+title: Project Structure
+description: Directory layout, key files, and navigation in CareSupport
+---
+
+## Overview
+
+CareSupport is organized around **files as database** - `family.md` is the source of truth per family, with no external database. The runtime agent loads context on demand using `AGENTS.md` routing.
+
+## Repository Map
+
+```
+CareSupport/
+├── AGENTS.md              # Agent routing table (start here if you're an AI)
+├── SOUL.md                # Agent identity and voice (loaded every message)
+├── ARCHITECTURE.md        # System diagram and domain boundaries
+├── agent_root.md          # Runtime routing for intent-based doc loading
+├── CLAUDE.md              # Build commands and project rules
+├── runtime/
+│   ├── config.py          # All paths and settings (single source of truth)
+│   ├── scripts/           # Core pipeline and utilities
+│   ├── enforcement/       # Safety gates (role_filter, phi_audit, etc.)
+│   ├── learning/          # Capabilities, lessons, skills
+│   └── tests/             # Test suites (88 structural checks)
+├── fork/
+│   └── workspace/
+│       ├── families/      # Live family data (routing.json, family.md, members/)
+│       └── protocols/     # 16 care protocols (meds, scheduling, handoffs)
+└── docs/
+    ├── PRODUCT_STRATEGY.md
+    ├── VISION.md
+    ├── SECURITY.md
+    ├── RELIABILITY.md
+    ├── QUALITY_SCORE.md
+    └── ...
+```
+
+## Key Files
+
+### AGENTS.md
+
+**Purpose:** Orchestrator file that routes AI agents to the right context.
+
+**Location:** Root directory
+
+**Why it exists:** Instead of reading everything, AI agents read this file first, find their task type in the routing table, then read ONLY the listed files for that task.
+
+**Routing table sections:**
+- SMS/Message Pipeline
+- Agent Routing Layer
+- Adding or Modifying Family Members
+- Enforcement Layer
+- Transport & Messaging (Linq/iMessage)
+- Product Strategy & Domain Model
+- Project State & History
+- Agent Identity & Learning System
+- Review & Learning
+- Care Protocols
+
+**Example routing:**
+```markdown
+### SMS/Message Pipeline
+The 13-step pipeline that processes inbound messages and generates responses.
+- `runtime/scripts/sms_handler.py` — core pipeline
+- `runtime/config.py` — all paths, settings, API config
+- `SOUL.md` — agent identity loaded into system prompt
+- `runtime/learning/capabilities.md` — CAN/CANNOT list
+```
+
+### SOUL.md
+
+**Purpose:** Agent identity, voice, and behavioral constraints.
+
+**Location:** Root directory
+
+**Loaded:** Every message (injected into system prompt)
+
+**Size:** ~30 lines
+
+**What it defines:**
+- Who the agent is
+- Voice and tone
+- Core behavioral rules
+- What it can/cannot do
+
+### agent_root.md
+
+**Purpose:** Master routing doc loaded into every system prompt.
+
+**Location:** Root directory
+
+**Loaded at runtime:** The agent uses this to decide which docs to load based on message intent.
+
+**Example:**
+```markdown
+If message is about scheduling → load docs/tasks/scheduling.md
+If message is about medications → load docs/tasks/medications.md
+If message is first contact → load docs/onboarding.md
+```
+
+### runtime/config.py
+
+**Purpose:** Single source of truth for all runtime paths and settings.
+
+**Critical rule:** Every runtime script MUST import from here. No hardcoded paths allowed.
+
+<CodeGroup>
+```python Good
+from config import paths
+family_file = paths.family_file("kano")
+```
+
+```python Bad (will fail structural tests)
+family_file = Path("/work/families/kano/family.md")
+```
+</CodeGroup>
+
+**What it provides:**
+- All filesystem paths
+- Linq configuration
+- Twilio configuration
+- Learning paths
+- Log paths
+
+## Directory Structure
+
+### runtime/
+
+The execution layer - Python code that runs the system.
+
+```
+runtime/
+├── config.py                    # Paths and settings
+├── scripts/                     # Executable scripts
+│   ├── sms_handler.py          # Core 13-step pipeline
+│   ├── poll_inbound.py         # Polling loop (fallback)
+│   ├── webhook_receiver.py     # Real-time webhooks (preferred)
+│   ├── linq_gateway.py         # Linq API client
+│   ├── review_loop.py          # Conversation review
+│   ├── review_staging.py       # Staging environment
+│   ├── heartbeat.py            # 48h lookahead alerts
+│   ├── maintenance.py          # Garbage collection
+│   ├── prompt_builder.py       # System prompt assembly
+│   ├── care_router.py          # Model tier routing
+│   ├── session.py              # Session management
+│   └── reaction_handler.py     # Reaction processing
+├── enforcement/                 # Mechanical safety gates
+│   ├── role_filter.py          # Access level filtering
+│   ├── phi_audit.py            # HIPAA-compliant logging
+│   ├── family_editor.py        # Surgical file edits
+│   ├── approval_pipeline.py    # Confirmation gates
+│   └── message_lock.py         # Concurrent message handling
+├── learning/                    # Agent learning system
+│   ├── capabilities.md         # CAN/CANNOT list
+│   ├── lessons.md              # Global corrections (max 20)
+│   ├── skills/                 # Conversation skills
+│   └── __init__.py             # append_lessons() utility
+└── tests/                       # Test suites
+    ├── test_structural.py      # 88 integrity checks
+    ├── test_role_filter.py
+    ├── test_phi_audit.py
+    ├── test_family_editor.py
+    ├── test_approval_pipeline.py
+    ├── test_handler_enforcement.py
+    ├── test_linq_gateway.py
+    ├── test_webhook_receiver.py
+    ├── test_heartbeat.py
+    ├── test_maintenance.py
+    ├── test_message_lock.py
+    ├── test_reaction_handler.py
+    └── fixtures.py              # Test data (Moreno family)
+```
+
+### fork/workspace/
+
+Live operational data - families, protocols, schedules.
+
+```
+fork/workspace/
+├── families/                    # Live family data
+│   └── kano/
+│       ├── routing.json        # Phone → member mapping
+│       ├── family.md           # Source of truth
+│       ├── lessons.md          # Per-family corrections
+│       ├── members/            # Individual member profiles
+│       │   ├── degitu.md
+│       │   ├── abeba.md
+│       │   └── samuel.md
+│       ├── timeline/           # Conversation history
+│       │   └── 2026-02.log
+│       └── staging/            # Review testing scratch pad
+│           ├── baseline/       # Snapshot for testing
+│           ├── reviews/        # Disposable test output
+│           ├── saved/          # Curated findings
+│           └── proposals/      # AI-generated improvements
+├── protocols/                   # 16 care protocols
+│   ├── medications.md
+│   ├── scheduling.md
+│   ├── handoffs.md
+│   ├── escalations.md
+│   └── ...
+└── simulation/                  # 5 test families + synthesis
+```
+
+### docs/
+
+Product strategy, specs, design docs, and executive plans.
+
+```
+docs/
+├── PRODUCT_STRATEGY.md         # Complete strategy (sections 0-16)
+├── VISION.md                   # Product vision and north-star
+├── ROADMAP.md                  # Phases and scaling challenges
+├── SECURITY.md                 # Enforcement posture
+├── RELIABILITY.md              # System reliability assessment
+├── QUALITY_SCORE.md            # Grades per layer
+├── MEMORY.md                   # Chronological project log
+├── member-onboarding.md        # How to add families/members
+├── personality.md              # Expanded voice/tone
+├── onboarding.md               # New user flows
+├── tasks/                      # Task playbooks (loaded on demand)
+│   ├── scheduling.md
+│   ├── checkins.md
+│   ├── escalations.md
+│   ├── medications.md
+│   └── model_routing.md
+├── product-specs/              # SMS coordination spec
+├── design-docs/                # Architecture decision records
+├── exec-plans/                 # Active work plans
+│   ├── active/
+│   ├── completed/
+│   └── tech-debt-tracker.md
+└── references/                 # Linq, HIPAA, Twilio setup docs
+```
+
+## Family Directory Structure
+
+Each family has a standard directory layout:
+
+```
+families/{family_id}/
+├── routing.json               # Phone → member resolution
+├── family.md                  # Source of truth (markdown)
+├── lessons.md                 # Per-family corrections
+├── members/                   # Individual member profiles
+│   └── {name}.md
+├── timeline/                  # Conversation logs
+│   └── {YYYY-MM}.log
+└── staging/                   # Review testing (not in production)
+    ├── baseline/
+    ├── reviews/
+    ├── saved/
+    └── proposals/
+```
+
+### routing.json Schema
+
+```json
+{
+  "family_id": "kano",
+  "family_name": "Kano",
+  "members": {
+    "+16517037981": {
+      "name": "Degitu",
+      "role": "care_recipient",
+      "access_level": "full",
+      "relationship": "grandmother",
+      "chat_id": "abc123",
+      "service": "iMessage",
+      "active": true
+    },
+    "+1...": {
+      "name": "Sarah",
+      "role": "professional_caregiver",
+      "access_level": "schedule+meds",
+      "relationship": "professional_caregiver",
+      "active": true
+    }
+  }
+}
+```
+
+### family.md Structure
+
+```markdown
+# Kano Care Network
+
+Coordinator: Degitu Kano (Care Recipient)
+Backup Coordinator: Abeba Kano (Family Caregiver)
+Coverage Window: 07:00–22:00
+Created: 2026-01-15
+Last Updated: 2026-02-18 09:15
+
+## Members
+
+### Degitu Kano
+- Role: Care Recipient
+- Phone: +16517037981
+- Coordinator: yes
+
+### Abeba Kano
+- Role: Family Caregiver
+- Phone: +1...
+- Coordinator: backup
+- Capabilities: [mobility_assist, med_admin, driving]
+
+## Care Recipient
+
+Name: Degitu Kano
+Conditions: Type 2 diabetes, hypertension
+Mobility: Walker indoors
+Emergency Contact: Abeba Kano (+1...)
+
+## Schedule
+
+```yaml
+shifts:
+  - date: 2026-02-18
+    window: "14:00-18:00"
+    assigned: Sarah
+    type: afternoon_care
+    status: confirmed
+```
+
+## Medications
+
+```yaml
+active:
+  - name: Lisinopril
+    dose: "10mg"
+    frequency: daily
+    time: "08:00"
+    prescriber: Dr. Chen
+```
+
+## Appointments
+
+- **Feb 20, 10:00 AM** — Dr. Chen (cardiology)
+  - Transport: needed
+  - Escort: Abeba (confirmed)
+
+## Active Issues
+
+- [ ] Feb 19 morning shift uncovered
+
+## Recent Events
+
+- **2026-02-18 09:00** — Morning meds confirmed
+
+## Patterns
+
+- Sarah is consistently reliable for afternoon shifts
+```
+
+## Navigation for AI Agents
+
+### Boot Sequence
+
+<Steps>
+  <Step title="Read AGENTS.md first">
+    This routes you to exactly the files you need for your task.
+  </Step>
+  
+  <Step title="Find your task type in the routing table">
+    Example: "SMS/Message Pipeline" or "Review & Learning"
+  </Step>
+  
+  <Step title="Read ONLY the listed files for that task">
+    Don't read everything - read what you need.
+  </Step>
+  
+  <Step title="Start working">
+    You now have the right context loaded.
+  </Step>
+</Steps>
+
+### Runtime Agent Routing
+
+The runtime agent (processing messages) uses `agent_root.md` to decide which docs to load:
+
+**Example: Scheduling request**
+```
+Message: "Can someone cover Tuesday morning?"
+Agent loads:
+  - docs/tasks/scheduling.md
+  - docs/tasks/model_routing.md
+```
+
+**Example: Medication question**
+```
+Message: "Did she take her morning meds?"
+Agent loads:
+  - docs/tasks/medications.md
+  - fork/workspace/protocols/medications.md
+```
+
+**Example: First contact**
+```
+Message: "Hi, I'm new here"
+Agent loads:
+  - docs/onboarding.md
+  - docs/personality.md
+```
+
+## Key Rules
+
+<Warning>
+These rules are enforced by structural tests and will break CI if violated.
+</Warning>
+
+1. **Import from `runtime/config.py`** - Never hardcode paths
+   ```python
+   from config import paths  # ✅
+   family_dir = paths.family_dir("kano")
+   ```
+
+2. **family.md changes use Edit, not Write** - Surgical replacement prevents data loss
+   ```python
+   from enforcement.family_editor import apply_updates  # ✅
+   ```
+
+3. **Safety enforcement is mechanical** - Code gates, not prompt instructions
+   ```python
+   from enforcement.role_filter import filter_family_context  # ✅
+   from enforcement.phi_audit import PHIAuditLogger
+   ```
+
+4. **Check `docs/exec-plans/active/` before starting new work**
+
+5. **Update AGENTS.md routing table when adding new files**
+
+## Build & Run
+
+<CodeGroup>
+```bash Type check
+npm install && npx tsc --noEmit
+```
+
+```bash Run tests
+cd runtime && PYTHONPATH=. python -m pytest tests/ -v
+```
+
+```bash Dry-run SMS handler
+python runtime/scripts/sms_handler.py --from "+1..." --body "test" --dry-run
+```
+
+```bash Start poller (in tmux)
+tmux new-session -d -s caresupport "python3 runtime/scripts/poll_inbound.py --interval 15"
+```
+
+```bash Send via Linq CLI
+python runtime/scripts/linq_gateway.py create --to "+16517037981" --body "Hello" --service iMessage
+```
+
+```bash Review agent behavior
+python runtime/scripts/review_loop.py --since 24h --family kano --full
+```
+</CodeGroup>
+
+## Related
+
+- [Testing Guide](/development/testing) - Test suites and pytest setup
+- [Scripts Reference](/development/scripts) - Runtime scripts documentation
+- [Enforcement Layer](/reference/enforcement-layer) - Safety gates and access control

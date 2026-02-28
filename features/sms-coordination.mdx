@@ -1,0 +1,371 @@
+---
+title: 'SMS & iMessage Coordination'
+description: 'Real-time care coordination through text messages with intelligent routing and multi-channel support'
+---
+
+## Overview
+
+CareSupport coordinates your care team through text messages, just like texting a trusted assistant. Send a request, ask a question, or update your team—the system handles the routing, context, and follow-through automatically.
+
+<Info>
+  **iMessage-first architecture**: CareSupport automatically uses iMessage when available, falling back to RCS or SMS. You get read receipts, typing indicators, and reactions with iMessage, making coordination feel natural.
+</Info>
+
+## How It Works
+
+Every message you send goes through a 13-step pipeline that resolves who you are, what you need, and how to respond safely:
+
+<Tabs>
+  <Tab title="Message Flow">
+    ### The Complete Pipeline
+
+    1. **Phone Resolution** — Your number maps to your family and role
+    2. **Context Assembly** — Family file, recent conversations, and member profiles load
+    3. **Pre-Filter** — Context is scoped to your access level (schedule-only members don't see medication details)
+    4. **PHI Audit** — Every context load is logged for HIPAA compliance
+    5. **AI Generation** — The agent generates a response using your filtered context
+    6. **Post-Check** — Outbound message is scanned for accidental information leakage
+    7. **Family File Updates** — Any schedule changes or notes are written to `family.md` with backup
+    8. **Outreach** — Messages to other team members are queued and sent
+    9. **PHI Audit** — Response delivery is logged
+
+    **Why 13 steps?** Each gate prevents a specific failure mode: race conditions, information leakage, missing follow-through, or lost data. The pipeline isn't optional—it's mechanical enforcement.
+  </Tab>
+
+  <Tab title="Example Exchange">
+    ```
+    You: Can someone take auntie to work tomorrow at 8am?
+
+    CareSupport: I'll check with Solan and Roman about the 8am ride.
+                 [Automatically messages both members]
+
+    [15 minutes later]
+    CareSupport: Solan confirmed — he'll pick her up at 7:45am tomorrow.
+    ```
+
+    **What happened behind the scenes:**
+    - Your message was classified as "schedule coordination"
+    - The agent checked who has driving availability
+    - It populated `needs_outreach` with Solan and Roman's phone numbers
+    - Outreach messages were sent immediately after your response
+    - The ride was added to `schedule.md` as a pending confirmation
+    - When Solan replied, the system marked it confirmed and notified you
+  </Tab>
+
+  <Tab title="Channel Selection">
+    ### iMessage vs SMS vs RCS
+
+    CareSupport uses **Linq Partner API V3** to send messages through the best available channel:
+
+    | Channel | Features | When Used |
+    |---------|----------|----------|
+    | **iMessage** | Read receipts, typing indicators, reactions, threading | Default for iOS users with data connection |
+    | **RCS** | Read receipts, rich media, delivery confirmation | Android users with RCS-enabled carriers |
+    | **SMS** | Universal compatibility | Fallback when neither iMessage nor RCS is available |
+
+    **The agent adapts its behavior to the channel:**
+    - iMessage: "React with 👍 to confirm" (uses tapback instead of typed reply)
+    - SMS: "Reply YES to confirm" (no read receipts or reactions)
+  </Tab>
+</Tabs>
+
+## Phone & Chat Resolution
+
+CareSupport needs to know who you are before it can respond. The system uses two identifiers:
+
+<Accordion title="Phone Number (E.164 format)">
+  **Format:** `+16517037981` (country code + 10 digits, no dashes or spaces)
+
+  **How it works:**
+  - Every family has a `routing.json` file that maps phone numbers to members
+  - When you text CareSupport, your number is looked up across all families
+  - If found: loads your role, access level, and family context
+  - If not found: "Sorry, this number isn't set up to receive messages"
+
+  **Example routing.json:**
+  ```json
+  {
+    "family_id": "kano",
+    "care_recipient": "Degitu Tefera",
+    "members": {
+      "+16517037981": {
+        "name": "Liban",
+        "role": "family_caregiver",
+        "access_level": "full",
+        "active": true
+      },
+      "+16516214824": {
+        "name": "Roman Tefera",
+        "role": "family_caregiver",
+        "access_level": "schedule+meds",
+        "active": true
+      }
+    }
+  }
+  ```
+</Accordion>
+
+<Accordion title="Chat ID (Linq iMessage identifier)">
+  **What it is:** A UUID that represents a specific iMessage conversation thread
+
+  **Why it's better than phone numbers:**
+  - iMessage uses Apple ID as the primary identifier (email or phone)
+  - A single person might text from multiple devices or phone numbers
+  - Chat IDs are persistent per conversation—they don't change
+
+  **Resolution priority:**
+  1. If message includes `chat_id` → resolve via `resolve_chat_id()`
+  2. If no `chat_id` → fall back to phone number via `resolve_phone()`
+
+  **Example:**
+  ```python
+  member = resolve_member(
+      chat_id="550e8400-e29b-41d4-a716-446655440000",
+      phone="+16517037981"
+  )
+  # Returns: {"name": "Liban", "role": "family_caregiver", ...}
+  ```
+</Accordion>
+
+## Linq Integration
+
+CareSupport uses Linq's Partner API V3 for all message delivery. Linq acts as the bridge between CareSupport and Apple's iMessage network.
+
+### Key Components
+
+<Tabs>
+  <Tab title="Gateway (linq_gateway.py)">
+    The Linq client handles all message operations:
+
+    **Creating a new chat:**
+    ```python
+    result = await create_chat(
+        to_phone="+16517037981",
+        initial_message="Welcome to CareSupport",
+        preferred_service="iMessage"
+    )
+    # Returns: {"success": True, "chat_id": "...", "service": "iMessage"}
+    ```
+
+    **Sending to an existing chat:**
+    ```python
+    result = await send_message(
+        chat_id="550e8400-e29b-41d4-a716-446655440000",
+        text="Solan confirmed the ride",
+        reply_to_message_id="parent-message-uuid"  # Threading
+    )
+    ```
+
+    **Reacting to messages (iMessage only):**
+    ```python
+    await add_reaction(
+        message_id="...",
+        reaction_type="love"  # ❤️ tapback
+    )
+    ```
+  </Tab>
+
+  <Tab title="Inbound Polling (poll_inbound.py)">
+    CareSupport checks for new messages every 15 seconds:
+
+    ```python
+    # Runs in a tmux session
+    while True:
+        result = await list_chats(from_phone=linq_phone, limit=20)
+        for chat in result["chats"]:
+            messages = await get_messages(chat["id"], limit=10)
+            for msg in messages:
+                if msg["direction"] == "inbound" and not seen(msg["id"]):
+                    # Process message through handle_sms()
+                    await handle_sms(msg["from"], msg["body"])
+        await asyncio.sleep(15)
+    ```
+
+    **Why polling instead of webhooks?**
+    - Webhooks require a public HTTPS endpoint
+    - Polling works in development, staging, and production without infrastructure changes
+    - Linq also supports webhooks for production deployments (see `webhook_receiver.py`)
+  </Tab>
+
+  <Tab title="Typing Indicators & Reactions">
+    iMessage supports rich interactions that make CareSupport feel responsive:
+
+    **Typing indicator:**
+    ```python
+    await send_typing_indicator(
+        chat_id="...",
+        duration=5  # "CareSupport is typing..." for 5 seconds
+    )
+    ```
+
+    **Message reactions (tapbacks):**
+    - `love` → ❤️
+    - `like` → 👍
+    - `dislike` → 👎
+    - `laugh` → 😂
+    - `emphasize` → !!
+    - `question` → ?
+    - `custom` → Any emoji
+
+    **When the agent uses reactions:**
+    - Quick acknowledgment without interrupting the conversation
+    - "React with 👍 to confirm" (iMessage channels only)
+    - Marking a message as "seen" without sending a full response
+  </Tab>
+</Tabs>
+
+### Message Routing Logic
+
+The system determines which channel to use for each message:
+
+```python
+# From sms_handler.py, line 262-286
+def _channel_guidance(service: str) -> str:
+    if service == "iMessage":
+        return """
+        The recipient can see when you're typing and when you've read their message.
+        They can react with tapbacks (👍, ❤️, ❓, etc.) instead of typing a reply.
+        For confirmations, say "React with 👍 to confirm" instead of "Reply YES."
+        Keep messages warm and concise—this feels like texting a friend.
+        """
+    elif service == "RCS":
+        return "Read receipts and delivery confirmation. Keep messages concise."
+    else:
+        return """
+        No read receipts or typing indicators. Keep messages under 320 characters
+        (2 SMS segments) when possible. Use "Reply YES to confirm" for confirmations.
+        """
+```
+
+The agent sees this guidance in its system prompt and adapts its behavior accordingly.
+
+## Outreach: Messaging Other Team Members
+
+When you ask CareSupport to contact someone, the system populates `needs_outreach` in the AI response:
+
+<Accordion title="How Outreach Works">
+  **Your message:**
+  ```
+  Can you check with Solan about Monday?
+  ```
+
+  **AI response (internal structure):**
+  ```json
+  {
+    "sms_response": "I'll message Solan about Monday.",
+    "needs_outreach": [
+      {
+        "phone": "+16514109390",
+        "name": "Solan",
+        "message": "Hi Solan, Liban is checking if you're available Monday. Can you confirm?"
+      }
+    ]
+  }
+  ```
+
+  **What happens next:**
+  1. You receive: "I'll message Solan about Monday."
+  2. CareSupport immediately sends the outreach message to Solan's phone
+  3. When Solan replies, you're notified with his response
+
+  **Critical rule:** If the agent says "I'll reach out" but `needs_outreach` is empty, the outreach WILL NOT HAPPEN. The array is the single source of truth.
+</Accordion>
+
+<Note>
+  The agent learns from broken promises. If it forgets to populate `needs_outreach`, the review system catches it and writes a correction to `lessons.md`. You'll see the fix applied in future conversations.
+</Note>
+
+## Configuration
+
+All SMS/iMessage settings are loaded from `runtime/config.py`:
+
+```python
+# Linq Partner API V3
+linq.base_url = "https://partner-api.linq.com/v3"
+linq.api_token = os.environ["LINQ_API_TOKEN"]
+linq.phone_number = os.environ["LINQ_PHONE_NUMBER"]  # Your Linq Blue number
+
+# AI Backend (OpenRouter or Anthropic)
+ai.backend = os.environ.get("CARESUPPORT_AI_BACKEND", "openrouter")
+ai.openrouter_key = os.environ["OPENROUTER_API_KEY"]
+ai.anthropic_key = os.environ["ANTHROPIC_API_KEY"]
+```
+
+**Never hardcode paths or tokens.** Import from `config.py` in every script.
+
+## Common Patterns
+
+<Accordion title="Multi-Member Coordination">
+  **Scenario:** You need someone to take auntie to an appointment, but you're not sure who's available.
+
+  ```
+  You: Can someone take auntie to the doctor Tuesday at 2pm?
+
+  CareSupport: I'll check with Roman, Solan, and Amanti about the 2pm appointment.
+
+  [Agent messages all three members]
+
+  CareSupport: Roman confirmed — he'll drive her Tuesday at 2pm.
+  ```
+
+  **Why this works:**
+  - The agent knows the care team from `family.md`
+  - It checks each member's typical availability (stored in member profiles)
+  - It messages multiple people in parallel
+  - It notifies you as soon as someone confirms
+</Accordion>
+
+<Accordion title="Relay Messages Between Members">
+  **Scenario:** A limited-access member needs something, but only the coordinator can approve it.
+
+  ```
+  Roman: Can you ask Liban to pick up spinach on his way home?
+
+  CareSupport: I'll let Liban know about the spinach.
+
+  [Messages Liban]
+
+  Liban: Got it
+
+  [CareSupport relays back to Roman]
+  CareSupport: Liban confirmed — he'll pick up spinach.
+  ```
+
+  **Why relays are necessary:**
+  - Roman has `schedule+meds` access (can't directly message Liban)
+  - CareSupport acts as the communication hub
+  - All messages are logged for family timeline
+</Accordion>
+
+<Accordion title="Handling Unknown Numbers">
+  **Scenario:** Someone texts CareSupport from a number not in `routing.json`.
+
+  ```
+  Unknown: Can I get an update on Degitu?
+
+  CareSupport: Sorry, this number isn't set up to receive messages.
+               If you think this is an error, please check with
+               whoever gave you this number.
+  ```
+
+  **What happens:**
+  - Zero PHI is disclosed (HIPAA compliance)
+  - The attempt is logged to `phi_access.log` with `"event": "unknown_number"`
+  - No family context is loaded
+  - No information about the care recipient is shared
+</Accordion>
+
+## Source Reference
+
+The SMS coordination pipeline is implemented in `runtime/scripts/sms_handler.py`:
+
+- **Phone resolution:** `sms_handler.py:122-169` (resolve_phone, resolve_chat_id, resolve_member)
+- **Context loading:** `sms_handler.py:183-231` (load_family_context, load_recent_conversations)
+- **Main pipeline:** `sms_handler.py:914-1228` (handle_sms, _process_message)
+- **Outreach logic:** System prompt at `sms_handler.py:386` explains `needs_outreach` to the AI
+- **Linq integration:** `runtime/scripts/linq_gateway.py` (create_chat, send_message, add_reaction)
+- **Inbound polling:** `runtime/scripts/poll_inbound.py` checks for new messages every 15 seconds
+
+<Info>
+  **Want to see the full pipeline?** Read `sms_handler.py` lines 1-23 for the architectural overview, then follow `handle_sms()` at line 914 to see each enforcement gate in action.
+</Info>

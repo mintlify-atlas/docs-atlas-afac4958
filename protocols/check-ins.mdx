@@ -1,0 +1,604 @@
+---
+title: Check-Ins & Daily Monitoring
+description: Daily check-in workflows, caregiver handoffs, and wellness tracking
+---
+
+# Check-Ins & Daily Monitoring
+
+CareSupport performs regular check-ins with your care team to track daily wellness, coordinate handoffs between caregivers, and identify patterns over time.
+
+## Daily Check-In Protocol
+
+Regular wellness check-ins with care team members.
+
+**Safety level:** Standard  
+**Requires approval:** No (informational gathering)
+
+### Default Schedule
+
+- **Morning check-in** (default 8am): Ask current caregiver about overnight/morning
+- **Evening check-in** (default 8pm): Summarize the day, prep for overnight
+
+<Info>
+Schedules are customizable per family. If your morning caregiver arrives at 7am, check-in can move to 7:15am. If you prefer a 9pm evening check-in, that works too.
+</Info>
+
+### Morning Check-In Flow
+
+<Steps>
+  <Step title="System identifies current caregiver">
+    Reads care plan → who is currently with care recipient?
+    
+    Sends to that person (not always primary caregiver)
+  </Step>
+  
+  <Step title="Asks about overnight and morning">
+    ```
+    Good morning Sarah 🌅
+    How did Mom sleep last night?
+    Any concerns this morning?
+    ```
+  </Step>
+  
+  <Step title="Records response in care plan">
+    Logs in Recent Updates section with timestamp
+    
+    If concerning (poor sleep, pain, confusion) → also adds to Urgent Notes
+  </Step>
+  
+  <Step title="Reminds of today's schedule">
+    "Today: PT appointment at 2pm, aide Maria arriving at 10am"
+  </Step>
+  
+  <Step title="Proactive scanning">
+    While checking in, also scans for:
+    - Medication refills due within 7 days
+    - Appointments in next 2 days
+    - Overdue follow-ups (>14 days without appointment)
+    - Condition tracking thresholds approaching
+  </Step>
+</Steps>
+
+**Example conversation:**
+```
+System: Good morning Sarah 🌅
+        How did Mom sleep last night?
+        Any concerns this morning?
+        
+Sarah:  Slept okay but seems more confused than usual
+        
+System: Thanks for letting me know. I've noted the confusion. 
+        Keep an eye on it and let me know if it continues.
+        
+        Today: Physical therapy at 2pm. 
+        
+        Also - Mom's Metformin refill is due in 5 days. 
+        Want me to request it from the pharmacy?
+        
+Sarah:  yes please
+        
+System: Requested ✅ Main Street Pharmacy says it will be 
+        ready Thursday.
+```
+
+### Evening Check-In Flow
+
+<Steps>
+  <Step title="System reads current care plan section">
+    Reviews Recent Updates from today
+    
+    Compiles day summary
+  </Step>
+  
+  <Step title="Messages primary caregiver with summary">
+    ```
+    Evening update for Mom:
+    - Meals: Ate well at breakfast and lunch, light dinner
+    - Meds: All confirmed ✓
+    - Mood: Alert this morning, more tired this afternoon
+    - Tomorrow: Dr. Smith cardiology 2pm
+    
+    Any concerns tonight?
+    ```
+  </Step>
+  
+  <Step title="Flags any missed items">
+    If medications were missed or meals skipped → notes in Urgent Notes
+    
+    If pattern emerging → flags to primary caregiver
+  </Step>
+  
+  <Step title="Reminds of tomorrow's first task">
+    "Tomorrow morning: Remember to give morning meds at 8am"
+  </Step>
+</Steps>
+
+**Example conversation:**
+```
+System: Evening update for Mom:
+        - Meals: Ate well at breakfast and lunch, light dinner
+        - Meds: All confirmed ✓  
+        - Mood: Alert this morning, more confused this afternoon
+        - Tomorrow: Physical therapy at 2pm
+        
+        Any concerns tonight?
+        
+Sarah:  The confusion is still there. Should I be worried?
+        
+System: It's good you're tracking it. If it gets worse or she 
+        seems disoriented, let me know immediately. Otherwise, 
+        mention it to Dr. Smith at Thursday's appointment.
+        
+        Want me to add that to the questions list?
+        
+Sarah:  yes
+        
+System: Added to "For Next Visit" ✓
+```
+
+### Adaptive Behavior
+
+Check-ins adapt to your family's communication style:
+
+**Adjusts to response patterns:**
+- If family responds with one-word answers consistently → shortens check-ins
+- If family shares detailed updates → matches their level of detail
+- Weekend vs weekday tone can differ (more relaxed on weekends)
+
+**Increases frequency when needed:**
+- After a bad night or incident → checks in more frequently that day
+- During illness or recovery → daily check-ins become twice-daily
+- After hospital discharge → enhanced monitoring for first week
+
+**Respects quiet times:**
+- Doesn't check in during times family has asked for quiet
+- See Care Preferences in care plan
+
+**Example of adaptation:**
+```
+[After several days of brief responses]
+
+System: Quick morning check — how's Mom doing?
+        
+Sarah:  good
+        
+System: Great ✓ PT at 2pm today.
+
+[More concise than usual detailed check-in]
+```
+
+### Data Tracking
+
+Each check-in records in Recent Updates:
+
+```
+2/28 8:15am: Morning check-in — slept well, ate breakfast, 
+meds on time. Sarah reporting.
+
+2/28 8:20pm: Evening check-in — ate light dinner, all meds 
+confirmed, mood good. Tomorrow: PT at 2pm. Sarah reporting.
+```
+
+Over time, patterns emerge that system flags monthly to primary caregiver:
+
+**Pattern tracking:**
+- Sleep quality trends ("Mom's sleep has improved since medication change")
+- Missed medication frequency ("Meds missed 3 times in past month - all evening doses")
+- Mood patterns ("Increased confusion on Tuesdays - day after aide visits")
+- Appetite changes ("Eating less at dinner for past 2 weeks")
+
+**Monthly summary example:**
+```
+System: Monthly patterns for Mom:
+        
+        ✓ Sleep: Improved - averaging 7 hours vs 5.5 last month
+        ⚠ Medications: Missed 3 evening doses (Mon, Wed, Fri)
+        ✓ Mood: Stable, alert most days
+        ⚠ Appetite: Dinner portions decreasing
+        
+        Worth mentioning any of these to Dr. Smith?
+```
+
+### Proactive Scanning
+
+During each check-in, system also checks care plan for:
+
+<Accordion title="Medication Refills Due">
+**Scans:** Any "Refill Due" dates within 7 days
+
+**Action:** Alerts during check-in
+
+**Example:**
+```
+System: Morning check-in — how did Mom sleep?
+        
+        Also: Metformin refill due in 5 days. Want me to request it?
+```
+</Accordion>
+
+<Accordion title="Upcoming Appointments">
+**Scans:** Anything in next 2 days
+
+**Action:** Reminds during check-in
+
+**Example:**
+```
+System: Evening update for Mom... [summary]
+        
+        Reminder: Cardiology appointment tomorrow at 2pm with Dr. Smith.
+```
+</Accordion>
+
+<Accordion title="Overdue Follow-Ups">
+**Scans:** Any "For Next Visit" items older than 14 days without scheduled appointment
+
+**Action:** Suggests scheduling
+
+**Example:**
+```
+System: Morning check-in — how's Mom doing?
+        
+        Also: It's been 3 weeks since you wanted to ask Dr. Patel 
+        about the dizziness. Want me to help schedule a follow-up?
+```
+</Accordion>
+
+<Accordion title="Condition Tracking Thresholds">
+**Scans:** Any progressive condition metric approaching documented concern threshold
+
+**Action:** Flags to primary caregiver
+
+**Example:**
+```
+System: Morning check-in — how's Mom?
+        
+        Also: Her weight has been trending down - now 142 lbs 
+        (from 148 two weeks ago). Dr. Smith wanted to know if 
+        she dropped below 145. Worth a call to the office?
+```
+</Accordion>
+
+### Caregiver Wellness Check
+
+When primary caregiver is also the person responding to check-ins, system periodically (every 3-5 days) includes a caregiver-focused question:
+
+```
+"And how are YOU doing, Sarah? Don't forget to take care of yourself too."
+```
+
+**If caregiver expresses burnout, exhaustion, or emotional distress:**
+
+<Steps>
+  <Step title="Acknowledge it">
+    Don't redirect to care recipient immediately
+    
+    "That sounds really hard. Caregiving is exhausting."
+  </Step>
+  
+  <Step title="Offer practical help">
+    "Want me to look into respite care options?"
+    
+    "Should we see if other family members can take some shifts?"
+  </Step>
+  
+  <Step title="Check for red flags">
+    If Caregiver Health Notes exist in care plan → review for concerning patterns
+  </Step>
+  
+  <Step title="Log in care plan">
+    Caregiver wellness is care-relevant data
+    
+    Records in Recent Updates
+  </Step>
+</Steps>
+
+**Example:**
+```
+System: Evening update for Mom... [summary]
+        
+        And how are YOU doing, Sarah?
+        
+Sarah:  honestly exhausted. haven't had a full night sleep in weeks
+        
+System: That sounds really hard. Caregiving is exhausting, and 
+        you're doing a lot.
+        
+        Would it help to look into respite care options? Even a 
+        few hours a week can make a difference.
+        
+Sarah:  maybe. i don't even know where to start
+        
+System: I can research local respite care programs that take 
+        Mom's insurance. Want me to do that?
+```
+
+### Cognitive Impairment Notifications
+
+If care recipient texts independently during high-risk hours (10pm-6am):
+
+<Steps>
+  <Step title="Respond normally and warmly">
+    Never make them feel they're doing something wrong
+  </Step>
+  
+  <Step title="Send silent notification to primary caregiver">
+    "Mom texted at 2:15am: 'Where is everyone?' Just letting you know."
+  </Step>
+  
+  <Step title="Do NOT tell care recipient you're notifying someone">
+    Unless safety requires it (they're trying to leave house, etc.)
+  </Step>
+</Steps>
+
+<Info>
+This is a soft rule - primary caregiver can disable these notifications if they prefer. Default is ON for care recipients with documented cognitive impairment.
+</Info>
+
+---
+
+## Caregiver Handoff Protocol
+
+Manage shift transitions between caregivers.
+
+**Safety level:** Standard  
+**Requires approval:** No
+
+### When It Triggers
+
+- Scheduled shift change (from care_schedules)
+- Manual request: "I'm heading out, Maria is taking over"
+
+### Handoff Flow
+
+<Steps>
+  <Step title="System compiles since last handoff">
+    Reads care plan Recent Updates:
+    - Meals (what, when)
+    - Medications (confirmed? missed?)
+    - Mood and behavior
+    - Any incidents or concerns
+    - Upcoming tasks for next shift
+  </Step>
+  
+  <Step title="Messages outgoing caregiver">
+    ```
+    Before you go — quick summary for handoff:
+    
+    [Auto-generated from today's data]
+    
+    Anything to add that Maria should know?
+    ```
+  </Step>
+  
+  <Step title="Messages incoming caregiver">
+    ```
+    Handoff from Sarah:
+    - Last meal: Lunch at 12:30 (ate well)
+    - Meds: Morning dose confirmed, evening due at 8pm  
+    - Mood: Alert and chatty this morning
+    - Concerns: None today
+    - Next up: Evening meds at 8pm
+    ```
+  </Step>
+  
+  <Step title="Logs handoff in care plan">
+    Records in Recent Updates with timestamp and both caregivers' names
+  </Step>
+</Steps>
+
+**Example conversation:**
+```
+Sarah:  heading out, Maria is here
+        
+System: Before you go — quick summary for handoff:
+        - Last meal: Lunch 12:30 (ate well)
+        - Meds: Morning confirmed, evening at 8pm
+        - Mood: Good today, alert
+        - Concerns: None
+        
+        Anything to add that Maria should know?
+        
+Sarah:  she's been asking about her sister a lot today
+        
+System: Got it, thanks Sarah.
+        
+        [To Maria]
+        Handoff from Sarah:
+        - Last meal: Lunch 12:30 (ate well)  
+        - Meds: Morning ✓, evening due at 8pm
+        - Mood: Alert and good today
+        - Note: Asking about her sister frequently today
+        - Next up: Evening meds at 8pm
+```
+
+### What a Good Handoff Includes
+
+**Always:**
+- Last meal (time and what)
+- Medication status (confirmed or missed)
+- Mood (alert, tired, confused, agitated, etc.)
+
+**If applicable:**
+- Any falls or incidents
+- Bathroom assistance timing
+- Pain level or pain medication given
+- Visitors or phone calls
+
+**Upcoming:**
+- Next medication due time
+- Appointments or scheduled visitors
+- Specific tasks for incoming caregiver
+
+**Context (the most valuable part):**
+- "She's been asking about her sister today" - emotional context
+- "He was frustrated this morning but settled down after breakfast"
+- "She seems more tired than usual"
+
+This qualitative information helps incoming caregiver understand what kind of day/shift to expect.
+
+### Missed Handoff
+
+If outgoing caregiver doesn't respond to handoff prompt:
+
+<Steps>
+  <Step title="Wait 15 minutes">
+    Give them time - they might be driving home
+  </Step>
+  
+  <Step title="Compile automated summary">
+    Use data logged throughout the day
+  </Step>
+  
+  <Step title="Send to incoming with note">
+    "Auto-generated from today's logs (couldn't reach Sarah)"
+  </Step>
+  
+  <Step title="Alert primary caregiver if pattern repeats">
+    If same caregiver misses handoff 3+ times → notify primary
+  </Step>
+</Steps>
+
+### Rotating/New Staff Identity Verification
+
+For professional caregivers (agency aides, rotating CNAs):
+
+**First message from new phone number claiming to be staff:**
+
+<Warning>
+**Do NOT share any PHI until identity is confirmed.**
+</Warning>
+
+<Steps>
+  <Step title="Verify identity">
+    "Hi! Can you confirm the agency name and the client's name?"
+  </Step>
+  
+  <Step title="Check against care plan">
+    If agency is documented in care plan AND name is correct → proceed
+  </Step>
+  
+  <Step title="If not documented, escalate">
+    "I'll need to check with Sarah before sharing information. Just a moment."
+    
+    Immediately notify primary caregiver
+  </Step>
+  
+  <Step title="Once verified, proceed with filtered access">
+    For known rotating staff (documented with phone numbers) → normal handoff
+    
+    Access-level filtered per their documented role
+  </Step>
+</Steps>
+
+**Example:**
+```
+[New number texts]: hi this is Maria from HomeHealth, starting shift
+
+System: Hi Maria! Can you confirm the client's name?
+        
+Maria:  Mrs. Johnson
+        
+System: Thanks! [Proceeds with handoff]
+        
+[Or if suspicious]:
+
+System: Thanks! Let me verify with the family. One moment.
+        
+        [To primary caregiver]:
+        Someone claiming to be Maria from HomeHealth just texted. 
+        Were you expecting a new aide today?
+```
+
+### Cold-Start Orientation for New Caregivers
+
+When a new caregiver joins the care team for the first time:
+
+<Steps>
+  <Step title="Provide comprehensive orientation summary">
+    Access-level filtered, includes:
+    - Care recipient name, conditions, mobility status
+    - Current medications + schedule (if schedule+meds access)
+    - Daily routine and preferences
+    - Emergency protocols customized to this family
+    - Key things that work well ("She responds to music")
+    - Things to avoid ("Don't mention the nursing home")
+  </Step>
+  
+  <Step title="Ask if they have questions">
+    "Any questions before your shift starts?"
+  </Step>
+  
+  <Step title="Check in 1 hour into first shift">
+    "How is everything going? Any questions?"
+  </Step>
+  
+  <Step title="End-of-first-shift: extra-detailed handoff prompt">
+    Gather observations: "How did the shift go? Anything we should know for next time?"
+  </Step>
+</Steps>
+
+**Example orientation:**
+```
+System: Welcome Maria! Quick orientation for Mrs. Johnson:
+        
+        - 78 years old, lives at home with daughter Sarah
+        - Conditions: Heart failure, diabetes, early dementia
+        - Mobility: Needs assistance standing/walking, uses walker
+        - Medications: 3 times daily (I'll remind you when due)
+        - Routine: Breakfast 8am, lunch 12pm, dinner 6pm
+        - She loves talking about her garden and her grandkids
+        - Please don't mention her late husband - it upsets her
+        
+        Emergency: If she has chest pain or trouble breathing, 
+        call 911 immediately and text me. Address is 123 Oak St.
+        
+        Any questions before you start?
+        
+Maria:  What should I do if she refuses to eat?
+        
+System: Good question. Try offering smaller portions or her 
+        favorite foods (she likes oatmeal and soup). If she 
+        refuses multiple meals, let Sarah know. Don't force it.
+        
+Maria:  got it thanks
+        
+System: You're all set! I'll check in with you in an hour.
+        
+[1 hour later]
+        
+System: How's everything going, Maria?
+```
+
+---
+
+## Integration with Other Protocols
+
+Check-ins and handoffs work with:
+
+- **Medication Management**: Reports medication compliance in daily summaries
+- **Wellness Monitoring**: Passively collects wellness data from check-in responses
+- **Care Schedules**: Agent schedules trigger check-ins at appropriate times
+- **Provider Communication**: Identifies items to surface at appointments
+- **Emergency Response**: Can trigger emergency protocol if check-in reveals concerning situation
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Customize Check-Ins" icon="sliders" href="/getting-started/check-ins">
+    Set check-in times and preferences
+  </Card>
+  
+  <Card title="Care Schedules" icon="calendar" href="/protocols/scheduling">
+    Understand how check-ins are scheduled
+  </Card>
+  
+  <Card title="Wellness Tracking" icon="heart-pulse" href="/guides/wellness">
+    Learn what wellness data is tracked
+  </Card>
+  
+  <Card title="Team Coordination" icon="users" href="/getting-started/care-team">
+    Manage your care team
+  </Card>
+</CardGroup>

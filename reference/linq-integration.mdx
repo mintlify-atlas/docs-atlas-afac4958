@@ -1,0 +1,673 @@
+---
+title: Linq API Integration
+description: iMessage-first messaging via Linq Partner API V3
+---
+
+The Linq gateway provides a Python client for Linq's Partner API V3, enabling iMessage, RCS, and SMS messaging with native Apple features.
+
+## Overview
+
+Linq is the **primary transport layer** for CareSupport. It supports:
+- **iMessage** (blue bubble) — typing indicators, read receipts, tapbacks, screen effects, voice memos
+- **RCS** (Rich Communication Services) — delivery confirmation, read receipts
+- **SMS** (fallback) — universal compatibility
+
+The API automatically handles fallback: `iMessage → RCS → SMS` based on recipient capability.
+
+**Module:** `runtime/scripts/linq_gateway.py`
+
+## Configuration
+
+Linq credentials are loaded from `runtime/config.py`:
+
+```python
+from config import linq
+
+linq.api_token          # Bearer token for Linq API
+linq.phone_number       # CareSupport's Linq Blue number (E.164)
+linq.base_url           # https://api.linqapp.com/api/partner/v3
+linq.webhook_signing_secret  # HMAC secret for webhook verification
+```
+
+Configuration file: `runtime/scripts/linq_config.json`
+
+```json
+{
+  "linq_api_token": "...",
+  "linq_phone": "+16517037981",
+  "base_url": "https://api.linqapp.com/api/partner/v3",
+  "webhook_signing_secret": "..."
+}
+```
+
+Location: `runtime/config.py:124`
+
+## Chat Operations
+
+### Create Chat
+
+```python
+async def create_chat(
+    to_phone: str,
+    initial_message: str,
+    from_phone: str = "",
+    preferred_service: str | None = None,
+    effect: dict | None = None
+) -> dict
+```
+
+<ParamField path="to_phone" type="string" required>
+  Recipient phone in E.164 format (e.g., `+16517037981`)
+</ParamField>
+
+<ParamField path="initial_message" type="string" required>
+  Text of the first message
+</ParamField>
+
+<ParamField path="from_phone" type="string">
+  Sender phone (defaults to configured Linq Blue number)
+</ParamField>
+
+<ParamField path="preferred_service" type="string">
+  Force a specific service: `"iMessage"`, `"RCS"`, or `"SMS"`. Omit for automatic fallback.
+</ParamField>
+
+<ParamField path="effect" type="object">
+  iMessage screen effect (e.g., `{"type": "screen", "name": "confetti"}`)
+</ParamField>
+
+**Returns:**
+
+<ResponseField name="success" type="boolean">
+  Whether the chat was created successfully
+</ResponseField>
+
+<ResponseField name="chat_id" type="string">
+  Persistent UUID for this conversation (use this for all subsequent messages)
+</ResponseField>
+
+<ResponseField name="message_id" type="string">
+  UUID of the initial message
+</ResponseField>
+
+<ResponseField name="service" type="string">
+  Actual service used: `"iMessage"`, `"RCS"`, or `"SMS"`
+</ResponseField>
+
+Location: `runtime/scripts/linq_gateway.py:72`
+
+**Example:**
+
+```python
+result = await create_chat(
+    to_phone="+16517037981",
+    initial_message="Welcome to CareSupport!",
+    preferred_service="iMessage",
+    effect={"type": "screen", "name": "balloons"}
+)
+
+if result["success"]:
+    chat_id = result["chat_id"]
+    print(f"Chat created: {chat_id} via {result['service']}")
+```
+
+### Send Message
+
+```python
+async def send_message(
+    chat_id: str,
+    text: str,
+    preferred_service: str | None = None,
+    effect: dict | None = None,
+    reply_to_message_id: str | None = None,
+    media_url: str | None = None,
+    attachment_id: str | None = None
+) -> dict
+```
+
+<ParamField path="chat_id" type="string" required>
+  UUID of the chat (from `create_chat` or webhook)
+</ParamField>
+
+<ParamField path="text" type="string" required>
+  Message text
+</ParamField>
+
+<ParamField path="preferred_service" type="string">
+  Force a specific service (usually omit for auto-fallback)
+</ParamField>
+
+<ParamField path="effect" type="object">
+  iMessage screen effect: `{"type": "screen", "name": "fireworks" | "confetti" | "balloons" | "lasers"}`
+</ParamField>
+
+<ParamField path="reply_to_message_id" type="string">
+  UUID of message to reply to (creates iMessage thread)
+</ParamField>
+
+<ParamField path="media_url" type="string">
+  Public URL of media to attach (up to 10MB)
+</ParamField>
+
+<ParamField path="attachment_id" type="string">
+  Pre-uploaded attachment ID (for files >10MB, up to 100MB)
+</ParamField>
+
+**Returns:**
+
+<ResponseField name="success" type="boolean">
+  Whether the message was sent
+</ResponseField>
+
+<ResponseField name="message_id" type="string">
+  UUID of the sent message
+</ResponseField>
+
+<ResponseField name="service" type="string">
+  Actual service used
+</ResponseField>
+
+<ResponseField name="delivery_status" type="string">
+  `"pending"`, `"sent"`, `"delivered"`, or `"failed"`
+</ResponseField>
+
+Location: `runtime/scripts/linq_gateway.py:130`
+
+**Example:**
+
+```python
+result = await send_message(
+    chat_id="550e8400-e29b-41d4-a716-446655440000",
+    text="Liban will pick up Degitu at 8am tomorrow.",
+    effect={"type": "screen", "name": "confetti"}
+)
+```
+
+### List Chats
+
+```python
+async def list_chats(
+    from_phone: str = "",
+    limit: int = 20,
+    cursor: str = ""
+) -> dict
+```
+
+<ParamField path="from_phone" type="string">
+  Filter by sender phone (defaults to configured Linq number)
+</ParamField>
+
+<ParamField path="limit" type="integer" default="20">
+  Number of chats to return (max 100)
+</ParamField>
+
+<ParamField path="cursor" type="string">
+  Pagination cursor from previous response
+</ParamField>
+
+**Returns:**
+
+<ResponseField name="success" type="boolean">
+  Whether the request succeeded
+</ResponseField>
+
+<ResponseField name="chats" type="array">
+  List of chat objects
+</ResponseField>
+
+<ResponseField name="next_cursor" type="string">
+  Cursor for next page (empty if no more results)
+</ResponseField>
+
+Location: `runtime/scripts/linq_gateway.py:108`
+
+## iMessage Features
+
+### Typing Indicators
+
+```python
+async def start_typing(chat_id: str) -> dict
+```
+
+Shows typing indicator (1:1 iMessage chats only). Automatically stops after ~10 seconds or when a message is sent.
+
+Location: `runtime/scripts/linq_gateway.py:214`
+
+```python
+async def stop_typing(chat_id: str) -> dict
+```
+
+Manually stops typing indicator.
+
+Location: `runtime/scripts/linq_gateway.py:220`
+
+### Read Receipts
+
+```python
+async def mark_as_read(chat_id: str) -> dict
+```
+
+Marks all messages in a chat as read. Sends read receipt to sender (iMessage only).
+
+Location: `runtime/scripts/linq_gateway.py:228`
+
+### Reactions (Tapbacks)
+
+```python
+async def add_reaction(
+    message_id: str,
+    reaction_type: str = "love",
+    custom_emoji: str = "",
+    part_index: int = 0
+) -> dict
+```
+
+<ParamField path="message_id" type="string" required>
+  UUID of the message to react to
+</ParamField>
+
+<ParamField path="reaction_type" type="string" default="love">
+  Reaction type: `"love"` ❤️, `"like"` 👍, `"dislike"` 👎, `"laugh"` 😂, `"emphasize"` ‼️, `"question"` ❓, or `"custom"`
+</ParamField>
+
+<ParamField path="custom_emoji" type="string">
+  Custom emoji for `reaction_type="custom"` (e.g., `"🎉"`)
+</ParamField>
+
+<ParamField path="part_index" type="integer" default="0">
+  Message part to react to (for multi-part messages)
+</ParamField>
+
+Location: `runtime/scripts/linq_gateway.py:189`
+
+```python
+async def remove_reaction(
+    message_id: str,
+    reaction_type: str = "love"
+) -> dict
+```
+
+Removes a previously added reaction.
+
+Location: `runtime/scripts/linq_gateway.py:204`
+
+**Example:**
+
+```python
+# React with ❤️ to a message
+await add_reaction(
+    message_id="550e8400-e29b-41d4-a716-446655440000",
+    reaction_type="love"
+)
+
+# Custom emoji reaction
+await add_reaction(
+    message_id="550e8400-e29b-41d4-a716-446655440000",
+    reaction_type="custom",
+    custom_emoji="🎉"
+)
+```
+
+### Voice Memos
+
+```python
+async def send_voice_memo(
+    chat_id: str,
+    voice_memo_url: str,
+    from_phone: str = ""
+) -> dict
+```
+
+<ParamField path="chat_id" type="string" required>
+  Chat UUID
+</ParamField>
+
+<ParamField path="voice_memo_url" type="string" required>
+  Public URL of audio file (MP3, M4A, AAC, CAF, WAV, AIFF, AMR; max 10MB)
+</ParamField>
+
+<ParamField path="from_phone" type="string">
+  Sender phone (defaults to configured Linq number)
+</ParamField>
+
+iMessage displays voice memos with native playback UI (waveform, scrubber, play/pause).
+
+Location: `runtime/scripts/linq_gateway.py:243`
+
+### Contact Card
+
+```python
+async def share_contact_card(chat_id: str) -> dict
+```
+
+Pushes CareSupport's branded contact card to the recipient (iMessage-exclusive). Appears as a rich card with logo and "Add to Contacts" button.
+
+Location: `runtime/scripts/linq_gateway.py:236`
+
+## Group Chat
+
+### Add Participant
+
+```python
+async def add_participant(chat_id: str, handle: str) -> dict
+```
+
+<ParamField path="chat_id" type="string" required>
+  Group chat UUID (must have 3+ existing participants)
+</ParamField>
+
+<ParamField path="handle" type="string" required>
+  Phone number or email to add
+</ParamField>
+
+Location: `runtime/scripts/linq_gateway.py:256`
+
+### Remove Participant
+
+```python
+async def remove_participant(chat_id: str, handle: str) -> dict
+```
+
+Removes a participant from a group chat.
+
+Location: `runtime/scripts/linq_gateway.py:262`
+
+## Attachments
+
+### Pre-Upload (Large Files)
+
+```python
+async def pre_upload_attachment(
+    filename: str,
+    content_type: str,
+    size_bytes: int
+) -> dict
+```
+
+<ParamField path="filename" type="string" required>
+  Original filename (e.g., `"lab_results.pdf"`)
+</ParamField>
+
+<ParamField path="content_type" type="string" required>
+  MIME type (e.g., `"application/pdf"`)
+</ParamField>
+
+<ParamField path="size_bytes" type="integer" required>
+  File size in bytes (max 100MB)
+</ParamField>
+
+**Returns:**
+
+<ResponseField name="success" type="boolean">
+  Whether pre-upload was successful
+</ResponseField>
+
+<ResponseField name="upload_url" type="string">
+  Presigned URL to `PUT` the file to (expires in 1 hour)
+</ResponseField>
+
+<ResponseField name="attachment_id" type="string">
+  ID to reference in `send_message(attachment_id=...)`
+</ResponseField>
+
+Location: `runtime/scripts/linq_gateway.py:270`
+
+**Example:**
+
+```python
+# 1. Pre-upload to get attachment_id
+result = await pre_upload_attachment(
+    filename="care_plan.pdf",
+    content_type="application/pdf",
+    size_bytes=5242880  # 5MB
+)
+
+if result["success"]:
+    # 2. PUT file to upload_url (use requests, httpx, etc.)
+    import httpx
+    async with httpx.AsyncClient() as client:
+        await client.put(result["upload_url"], content=pdf_bytes)
+    
+    # 3. Send message with attachment_id
+    await send_message(
+        chat_id=chat_id,
+        text="Here's your care plan.",
+        attachment_id=result["attachment_id"]
+    )
+```
+
+## Webhooks
+
+### List Subscriptions
+
+```python
+async def list_webhook_subscriptions() -> dict
+```
+
+**Returns:**
+
+<ResponseField name="success" type="boolean">
+  Whether the request succeeded
+</ResponseField>
+
+<ResponseField name="subscriptions" type="array">
+  List of active webhook subscriptions
+</ResponseField>
+
+Location: `runtime/scripts/linq_gateway.py:295`
+
+### Create Subscription
+
+```python
+async def create_webhook_subscription(
+    target_url: str,
+    events: list[str],
+    version: str = "2026-02-03"
+) -> dict
+```
+
+<ParamField path="target_url" type="string" required>
+  Public HTTPS URL to receive webhook events
+</ParamField>
+
+<ParamField path="events" type="array" required>
+  Event types to subscribe to:
+  - `"message.created"` — Inbound message received
+  - `"message.updated"` — Delivery status changed
+  - `"reaction.created"` — Tapback received
+  - `"reaction.removed"` — Tapback removed
+  - `"chat.created"` — New chat initiated
+</ParamField>
+
+<ParamField path="version" type="string" default="2026-02-03">
+  API version for webhook payload schema
+</ParamField>
+
+**Returns:**
+
+<ResponseField name="success" type="boolean">
+  Whether the subscription was created
+</ResponseField>
+
+<ResponseField name="subscription_id" type="string">
+  UUID of the subscription
+</ResponseField>
+
+<ResponseField name="signing_secret" type="string">
+  HMAC-SHA256 secret for verifying webhook authenticity (store securely!)
+</ResponseField>
+
+Location: `runtime/scripts/linq_gateway.py:303`
+
+**Example:**
+
+```python
+result = await create_webhook_subscription(
+    target_url="https://caresupport.app/webhooks/linq",
+    events=["message.created", "reaction.created"]
+)
+
+if result["success"]:
+    # CRITICAL: Store signing_secret in config
+    signing_secret = result["signing_secret"]
+    print(f"Subscription ID: {result['subscription_id']}")
+```
+
+### Delete Subscription
+
+```python
+async def delete_webhook_subscription(subscription_id: str) -> dict
+```
+
+Deletes a webhook subscription.
+
+Location: `runtime/scripts/linq_gateway.py:319`
+
+### Verify Webhook Signature
+
+```python
+def verify_webhook_signature(
+    payload: bytes,
+    timestamp: str,
+    signature: str
+) -> bool
+```
+
+<ParamField path="payload" type="bytes" required>
+  Raw request body (do NOT parse first)
+</ParamField>
+
+<ParamField path="timestamp" type="string" required>
+  `X-Linq-Timestamp` header value
+</ParamField>
+
+<ParamField path="signature" type="string" required>
+  `X-Linq-Signature` header value (hex-encoded HMAC)
+</ParamField>
+
+**Returns:** `True` if signature is valid, `False` if forged
+
+Location: `runtime/scripts/linq_gateway.py:327`
+
+**Example (Flask webhook receiver):**
+
+```python
+from flask import Flask, request
+from linq_gateway import verify_webhook_signature
+
+app = Flask(__name__)
+
+@app.route("/webhooks/linq", methods=["POST"])
+def handle_webhook():
+    payload = request.get_data()
+    timestamp = request.headers.get("X-Linq-Timestamp")
+    signature = request.headers.get("X-Linq-Signature")
+    
+    if not verify_webhook_signature(payload, timestamp, signature):
+        return "Invalid signature", 401
+    
+    event = request.json
+    if event["event_type"] == "message.created":
+        # Process inbound message
+        chat_id = event["data"]["chat_id"]
+        text = event["data"]["message"]["parts"][0]["value"]
+        # ...
+    
+    return "", 200
+```
+
+## Phone Numbers
+
+```python
+async def list_phone_numbers() -> dict
+```
+
+Lists all phone numbers assigned to this Linq account.
+
+**Returns:**
+
+<ResponseField name="success" type="boolean">
+  Whether the request succeeded
+</ResponseField>
+
+<ResponseField name="phone_numbers" type="array">
+  List of phone number objects
+  <expandable>
+    <ResponseField name="phone_number" type="string">
+      Phone in E.164 format
+    </ResponseField>
+    <ResponseField name="type" type="string">
+      `"blue"` (iMessage-enabled) or `"green"` (SMS-only)
+    </ResponseField>
+    <ResponseField name="status" type="string">
+      `"active"`, `"pending"`, or `"inactive"`
+    </ResponseField>
+  </expandable>
+</ResponseField>
+
+Location: `runtime/scripts/linq_gateway.py:285`
+
+## CLI Usage
+
+```bash
+# Create a new chat
+python runtime/scripts/linq_gateway.py create \
+  --to "+16517037981" \
+  --body "Welcome to CareSupport!" \
+  --service iMessage
+
+# Send to existing chat
+python runtime/scripts/linq_gateway.py send \
+  --chat-id "550e8400-e29b-41d4-a716-446655440000" \
+  --body "Liban will drive tomorrow at 8am."
+
+# List all chats
+python runtime/scripts/linq_gateway.py list-chats
+
+# List phone numbers
+python runtime/scripts/linq_gateway.py phones
+
+# Start typing indicator
+python runtime/scripts/linq_gateway.py typing \
+  --chat-id "550e8400-e29b-41d4-a716-446655440000"
+
+# React to a message
+python runtime/scripts/linq_gateway.py react \
+  --message-id "550e8400-e29b-41d4-a716-446655440000" \
+  --type love
+
+# List webhook subscriptions
+python runtime/scripts/linq_gateway.py webhooks
+```
+
+## Integration with SMS Handler
+
+The polling loop (`poll_inbound.py`) calls Linq API to check for new messages, then passes them to the SMS handler:
+
+```python
+from linq_gateway import list_chats, get_messages
+from sms_handler import handle_sms, resolve_chat_id
+
+# Poll for new messages
+chats = await list_chats(limit=50)
+for chat in chats["chats"]:
+    messages = await get_messages(chat["id"], limit=10)
+    for msg in messages["messages"]:
+        if msg["direction"] == "inbound" and not_yet_processed(msg["id"]):
+            # Resolve chat_id to member
+            member = resolve_chat_id(chat["id"])
+            if member:
+                # Pass to SMS handler
+                result = await handle_sms(
+                    from_phone=member["phone"],
+                    body=msg["parts"][0]["value"],
+                    service=msg["service"]  # "iMessage", "RCS", or "SMS"
+                )
+```
+
+See: `runtime/scripts/poll_inbound.py`
+
+## Related
+
+- [SMS Handler](/reference/sms-handler) — Core message processing pipeline
+- [Configuration](/reference/configuration) — Linq credentials and settings

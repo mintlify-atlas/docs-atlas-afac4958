@@ -1,0 +1,622 @@
+---
+title: Enforcement Layer
+description: Mechanical safety gates for access control, PHI audit, and approval workflows
+---
+
+The enforcement layer provides four mechanical safety components that operate independently of the AI agent. These are **code gates**, not prompt instructions.
+
+## Components
+
+1. **Role Filter** — Pre-filters context by access level, scans outbound messages for leakage
+2. **PHI Audit** — HIPAA-compliant logging of all PHI access events
+3. **Family Editor** — Edit-not-write file updates with backup and validation
+4. **Approval Pipeline** — Coordinator confirmation for high-risk changes
+
+---
+
+## 1. Role Filter
+
+**Module:** `runtime/enforcement/role_filter.py`
+
+Two-layer defense:
+1. **PRE-FILTER:** Strip sections from `family.md` before the AI sees them
+2. **POST-CHECK:** Scan outbound messages for medication/condition keywords
+
+### Access Matrix
+
+```python
+ACCESS_MATRIX = {
+    "full": {
+        "sections": ["*"],
+        "can_approve_changes": True,
+    },
+    "schedule+meds": {
+        "sections": [
+            "members", "care_recipient", "schedule", "medications",
+            "appointments", "availability", "active_issues",
+        ],
+        "can_approve_changes": False,
+    },
+    "schedule": {
+        "sections": [
+            "members", "schedule", "availability", "active_issues",
+        ],
+        "can_approve_changes": False,
+    },
+    "provider": {
+        "sections": [
+            "care_recipient", "medications", "appointments", "members",
+        ],
+        "can_approve_changes": False,
+    },
+    "limited": {
+        "sections": ["members", "care_recipient"],
+        "can_approve_changes": False,
+    },
+}
+```
+
+Location: `runtime/enforcement/role_filter.py:22`
+
+### Pre-Filter: Context Scoping
+
+```python
+def filter_family_context(family_md: str, access_level: str) -> str
+```
+
+<ParamField path="family_md" type="string" required>
+  Raw `family.md` content (full unfiltered file)
+</ParamField>
+
+<ParamField path="access_level" type="string" required>
+  Member's access level: `"full"`, `"schedule+meds"`, `"schedule"`, `"provider"`, or `"limited"`
+</ParamField>
+
+**Returns:** Filtered markdown with restricted sections removed
+
+**How it works:**
+1. Parses `family.md` into header block + typed sections
+2. Keeps only sections listed in the access matrix
+3. Reassembles with filtered sections only
+4. The AI never sees restricted data
+
+Location: `runtime/enforcement/role_filter.py:126`
+
+<Note>
+  If access level is unknown, returns header only with message: `[Access level not recognized. No care data loaded.]`
+</Note>
+
+### Post-Check: Outbound Leakage Detection
+
+```python
+def check_outbound_message(
+    message: str,
+    access_level: str
+) -> LeakageResult
+```
+
+<ParamField path="message" type="string" required>
+  SMS text about to be sent
+</ParamField>
+
+<ParamField path="access_level" type="string" required>
+  Recipient's access level
+</ParamField>
+
+**Returns:** `LeakageResult` dataclass
+
+<ResponseField name="is_clean" type="boolean">
+  Whether the message is safe to send
+</ResponseField>
+
+<ResponseField name="leaked_categories" type="array">
+  Detected category violations (e.g., `["medications", "conditions"]`)
+</ResponseField>
+
+<ResponseField name="leaked_terms" type="array">
+  Actual terms found (e.g., `["lisinopril", "10mg", "diabetes"]`)
+</ResponseField>
+
+Location: `runtime/enforcement/role_filter.py:235`
+
+**Detection Patterns:**
+
+Medication patterns (if `"medications"` not in allowed sections):
+- Suffixes: `-pril`, `-sartan`, `-statin`, `-formin`, `-olol`, `-pine`, `-azole`, `-cycline`, `-mycin`
+- Dosages: `10mg`, `500 mg`, `25mcg`, `5ml`
+
+Condition patterns (if `"care_recipient"` not in allowed sections):
+- Keywords: `diabetes`, `hypertension`, `alzheimer`, `dementia`, `diagnosis`, `prescription`
+- Medical terms: `A1C`, `blood pressure`, `blood sugar`, `cholesterol`, `insulin`
+
+<Note>
+  **Blocked Response:** If leakage is detected, the handler replaces the AI response with:
+  
+  `"I'm sorry, I can't share that information with your access level. Please contact the care coordinator if you need more details."`
+  
+  The PHI audit logger records the block event with leaked terms.
+</Note>
+
+### Helper Functions
+
+```python
+def get_filtered_sections(access_level: str) -> list[str]
+```
+
+Returns which section keys are visible for an access level. Returns `["*"]` for full access.
+
+Location: `runtime/enforcement/role_filter.py:160`
+
+```python
+def can_approve(access_level: str) -> bool
+```
+
+Checks if a member can approve care plan changes. Only `"full"` returns `True`.
+
+Location: `runtime/enforcement/role_filter.py:169`
+
+---
+
+## 2. PHI Audit Logger
+
+**Module:** `runtime/enforcement/phi_audit.py`
+
+Every interaction that touches Protected Health Information gets logged with WHO/WHAT/WHEN/WHY/WHAT HAPPENED.
+
+### Initialization
+
+```python
+from enforcement.phi_audit import PHIAuditLogger
+
+audit = PHIAuditLogger(log_dir=paths.logs)
+```
+
+Logs are written to: `/logs/{YYYY-MM-DD}/phi_access.log` (JSONL format)
+
+### Log Context Load
+
+```python
+audit.log_context_load(
+    family_id: str,
+    accessor_phone: str,
+    accessor_role: str,
+    access_level: str,
+    sections_loaded: list[str],
+    trigger_message: str
+)
+```
+
+Fires on **every inbound SMS** that resolves to a family. Records what data was loaded for whom.
+
+Location: `runtime/enforcement/phi_audit.py:41`
+
+### Log Response Sent
+
+```python
+audit.log_response_sent(
+    family_id: str,
+    recipient_phone: str,
+    recipient_role: str,
+    access_level: str,
+    response_length: int,
+    leakage_clean: bool
+)
+```
+
+Fires on **every outbound SMS**. Records that data was shared and whether leakage check passed.
+
+Location: `runtime/enforcement/phi_audit.py:62`
+
+### Log Response Blocked
+
+```python
+audit.log_response_blocked(
+    family_id: str,
+    recipient_phone: str,
+    access_level: str,
+    leaked_categories: list[str],
+    leaked_terms: list[str]
+)
+```
+
+Fires when a response is **BLOCKED** due to detected PHI leakage. This is a **HIGH severity** safety event.
+
+Location: `runtime/enforcement/phi_audit.py:83`
+
+### Log Unknown Number
+
+```python
+audit.log_unknown_number(phone: str)
+```
+
+Logs when an unrecognized phone contacts CareSupport. Records `phi_disclosed: false` (hard rule).
+
+Location: `runtime/enforcement/phi_audit.py:119`
+
+### Event Format
+
+All events are written as JSON lines:
+
+```json
+{
+  "timestamp": "2026-02-28T14:32:01.123456Z",
+  "event": "context_load",
+  "family_id": "kano",
+  "accessor": {
+    "phone": "+16517037981",
+    "role": "family_caregiver",
+    "access_level": "schedule"
+  },
+  "sections_loaded": ["members", "schedule", "availability", "active_issues"],
+  "trigger": "Can someone take auntie to work tomorrow at 8am?"
+}
+```
+
+---
+
+## 3. Family Editor
+
+**Module:** `runtime/enforcement/family_editor.py`
+
+Mechanical enforcement of edit-not-write semantics. The `family.md` file IS the database.
+
+### Edit Requirements
+
+Every edit must be:
+1. **Atomic** — either the whole edit succeeds or nothing changes
+2. **Backed up** — timestamped copy before any modification
+3. **Surgical** — only the target section changes; everything else untouched
+4. **Validated** — the result still parses into valid sections
+
+### Apply Updates
+
+```python
+def apply_updates(
+    family_md_path: Path,
+    updates: list[FileUpdate],
+    backup_dir: Path | None = None,
+) -> EditResult
+```
+
+<ParamField path="family_md_path" type="Path" required>
+  Path to `family.md` (or `schedule.md`, `medications.md`)
+</ParamField>
+
+<ParamField path="updates" type="list[FileUpdate]" required>
+  List of structured updates to apply
+</ParamField>
+
+<ParamField path="backup_dir" type="Path">
+  Custom backup directory (defaults to `{family_dir}/backups`)
+</ParamField>
+
+**Returns:** `EditResult` dataclass
+
+<ResponseField name="success" type="boolean">
+  Whether all updates were applied successfully
+</ResponseField>
+
+<ResponseField name="backup_path" type="string">
+  Path to timestamped backup file
+</ResponseField>
+
+<ResponseField name="updates_applied" type="integer">
+  Number of updates successfully applied
+</ResponseField>
+
+<ResponseField name="updates_skipped" type="integer">
+  Number of updates that failed (logged in `errors`)
+</ResponseField>
+
+<ResponseField name="errors" type="array">
+  List of error messages for failed updates
+</ResponseField>
+
+<ResponseField name="sections_modified" type="array">
+  List of section keys that were changed
+</ResponseField>
+
+Location: `runtime/enforcement/family_editor.py:203`
+
+### FileUpdate Structure
+
+```python
+@dataclass
+class FileUpdate:
+    section: str       # Section key (e.g., "schedule", "medications")
+    operation: str     # "append" | "prepend" | "replace" | "resolve_issue"
+    content: str       # Text to add or replacement content
+    old_content: str   # For "replace" — the text being replaced
+```
+
+Location: `runtime/enforcement/family_editor.py:51`
+
+### Operations
+
+**Append:**
+```python
+FileUpdate(
+    section="schedule",
+    operation="append",
+    content="- 2026-03-01 08:00: Doctor appointment (Marcus driving)",
+    old_content=""
+)
+```
+
+Adds content to the end of the section.
+
+**Prepend:**
+```python
+FileUpdate(
+    section="active_issues",
+    operation="prepend",
+    content="- [ ] Follow up with pharmacy about refill",
+    old_content=""
+)
+```
+
+Adds content after the section header.
+
+**Replace:**
+```python
+FileUpdate(
+    section="medications",
+    operation="replace",
+    content="- Lisinopril 10mg — 1x daily at 8am",
+    old_content="- Lisinopril 5mg — 1x daily at 8am"
+)
+```
+
+Replaces specific text within a section. Fails if `old_content` not found.
+
+**Resolve Issue:**
+```python
+FileUpdate(
+    section="active_issues",
+    operation="resolve_issue",
+    content="pharmacy refill",
+    old_content=""
+)
+```
+
+Changes `- [ ]` to `- [x]` for the matching issue line.
+
+### File Routing
+
+Some sections target split files instead of `family.md`:
+
+```python
+SECTION_FILE_MAP = {
+    "schedule": "schedule.md",
+    "this_week": "schedule.md",
+    "medications": "medications.md",
+    "active_medications": "medications.md",
+    "medication_hold_log": "medications.md",
+}
+```
+
+Location: `runtime/enforcement/family_editor.py:29`
+
+```python
+def resolve_target_file(family_dir: Path, section_key: str) -> Path
+```
+
+Returns the correct file path for a section update.
+
+Location: `runtime/enforcement/family_editor.py:38`
+
+### Validation
+
+```python
+def validate_family_file(content: str) -> tuple[bool, list[str]]
+```
+
+Checks:
+- Has a top-level `# header`
+- Has at least one `## section`
+- All sections parse correctly
+- No empty sections
+
+**Returns:** `(is_valid, list_of_issues)`
+
+If validation fails after edits, **NOTHING is written**. The backup remains intact.
+
+Location: `runtime/enforcement/family_editor.py:163`
+
+---
+
+## 4. Approval Pipeline
+
+**Module:** `runtime/enforcement/approval_pipeline.py`
+
+Mechanical enforcement of coordinator confirmation for high-risk changes.
+
+### What Requires Approval
+
+```python
+APPROVAL_REQUIRED = {
+    ("medications", "append"),
+    ("medications", "prepend"),
+    ("medications", "replace"),
+    ("care_recipient", "replace"),
+    ("members", "append"),
+    ("members", "replace"),
+}
+```
+
+Location: `runtime/enforcement/approval_pipeline.py:40`
+
+These section+operation pairs **ALWAYS** require YES/NO confirmation from a member with `can_approve` access.
+
+### Classify Updates
+
+```python
+def classify_updates(updates: list[FileUpdate]) -> ClassifiedUpdates
+```
+
+Splits updates into:
+- `auto_apply` — Safe to apply immediately
+- `needs_approval` — Requires confirmation
+
+**Returns:** `ClassifiedUpdates` dataclass
+
+<ResponseField name="auto_apply" type="list[FileUpdate]">
+  Updates that can be applied without confirmation
+</ResponseField>
+
+<ResponseField name="needs_approval" type="list[tuple[FileUpdate, str]]">
+  Updates requiring approval, each with a reason string
+</ResponseField>
+
+Location: `runtime/enforcement/approval_pipeline.py:83`
+
+### Create Pending Approval
+
+```python
+def create_pending(
+    family_dir: Path,
+    update: FileUpdate,
+    description: str,
+    requester_phone: str,
+    requester_name: str,
+    approver_phones: list[str],
+    expiry_hours: int = 24,
+) -> PendingApproval
+```
+
+Stores a pending approval in `{family_dir}/pending_approvals.json` and returns the approval object with a unique ID.
+
+Location: `runtime/enforcement/approval_pipeline.py:140`
+
+### Resolve Approval
+
+```python
+def resolve_approval(
+    family_dir: Path,
+    approval_id: str,
+    approved: bool,
+    by_phone: str,
+) -> dict
+```
+
+<ParamField path="family_dir" type="Path" required>
+  Family directory path
+</ParamField>
+
+<ParamField path="approval_id" type="string" required>
+  8-character hex ID from the pending approval
+</ParamField>
+
+<ParamField path="approved" type="boolean" required>
+  `True` for approval, `False` for rejection
+</ParamField>
+
+<ParamField path="by_phone" type="string" required>
+  Phone number of the approver (must be in `approver_phones`)
+</ParamField>
+
+**Returns:**
+
+<ResponseField name="success" type="boolean">
+  Whether the resolution succeeded
+</ResponseField>
+
+<ResponseField name="action" type="string">
+  `"approved"`, `"rejected"`, `"not_found"`, `"already_resolved"`, `"expired"`, or `"unauthorized"`
+</ResponseField>
+
+<ResponseField name="description" type="string">
+  Human-readable description of the change
+</ResponseField>
+
+<ResponseField name="edit_result" type="object | null">
+  Result from `family_editor.apply_updates()` if approved, otherwise `null`
+</ResponseField>
+
+Location: `runtime/enforcement/approval_pipeline.py:183`
+
+### Detect Approval Response
+
+```python
+def detect_approval_response(message: str) -> tuple[bool | None, str | None]
+```
+
+Detects if an inbound message is a YES/NO approval.
+
+**Returns:** `(is_approved, approval_id_or_none)`
+- `(True, id)` → approved
+- `(False, id)` → rejected
+- `(None, None)` → not an approval response
+
+Location: `runtime/enforcement/approval_pipeline.py:337`
+
+**Patterns:**
+- YES: `yes`, `y`, `approve`, `confirm`, `ok`, `go ahead`, `do it`
+- NO: `no`, `n`, `reject`, `deny`, `cancel`, `don't`, `nope`
+
+Supports `"YES abc123"` or `"NO abc123"` with explicit ID reference.
+
+### Format Confirmation SMS
+
+```python
+def format_confirmation_sms(approval: PendingApproval) -> str
+```
+
+Generates the SMS sent to approvers:
+
+```
+⚠️ Approval needed: {description}
+Requested by {requester_name}.
+Reply YES or NO (ref: {approval_id})
+```
+
+Location: `runtime/enforcement/approval_pipeline.py:370`
+
+### Expiry
+
+Pending approvals expire after 24 hours (configurable via `EXPIRY_HOURS`).
+
+```python
+def expire_stale(family_dir: Path) -> int
+```
+
+Marks expired approvals. Returns count of newly expired.
+
+Location: `runtime/enforcement/approval_pipeline.py:305`
+
+## Integration
+
+The SMS handler integrates all four components:
+
+```python
+# 1. Pre-filter context
+filtered_context = filter_family_context(raw_context, access_level)
+
+# 2. Log PHI access
+audit.log_context_load(family_id, phone, role, access_level, sections, body)
+
+# 3. Generate response
+result = await generate_response(system_context, body)
+
+# 4. Post-check for leakage
+leakage = check_outbound_message(result["sms_response"], access_level)
+
+if not leakage.is_clean:
+    audit.log_response_blocked(family_id, phone, access_level, leakage.leaked_categories, leakage.leaked_terms)
+    return BLOCKED_RESPONSE
+
+# 5. Classify and apply updates
+classified = classify_updates(parse_update_instructions(result["family_file_updates"]))
+edit_result = apply_updates(family_md_path, classified.auto_apply)
+
+# 6. Create pending approvals for high-risk changes
+for update, reason in classified.needs_approval:
+    create_pending(family_dir, update, reason, phone, name, approver_phones)
+```
+
+Location: `runtime/scripts/sms_handler.py:958-1172`
+
+## Related
+
+- [SMS Handler](/reference/sms-handler) — Main pipeline that calls enforcement layer
+- [Configuration](/reference/configuration) — Paths and settings

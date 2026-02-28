@@ -1,0 +1,374 @@
+---
+title: "Agent Capabilities"
+description: "What CareSupport can and cannot do, plus skill-based protocols"
+---
+
+CareSupport's capabilities are defined in two layers: **system-level gates** (what the runtime allows) and **skill-based protocols** (how the agent should behave in specific scenarios).
+
+## System-Level Capabilities
+
+From `capabilities.md`, loaded into every prompt:
+
+### How Output Becomes Action
+
+<Info>
+Your JSON response fields are not suggestions — the system acts on them immediately.
+</Info>
+
+<Tabs>
+  <Tab title="sms_response">
+    Sent to the user as an SMS.
+    
+    **Constraint:** Must always be populated. Never return empty `sms_response`.
+  </Tab>
+  
+  <Tab title="family_file_updates">
+    Applied to `family.md`, `schedule.md`, or `medications.md` via surgical edit (backup first).
+    
+    **Mechanism:** `family_editor.py` handles section-aware updates.
+  </Tab>
+  
+  <Tab title="self_corrections">
+    Written to this family's `lessons.md`, loaded into every future prompt.
+    
+    **Persistence:** Immediate. You see it in context on the next message.
+  </Tab>
+  
+  <Tab title="member_updates">
+    Applied to member profile files (`members/{name}.md`).
+    
+    **Use case:** When you learn new information about a care team member.
+  </Tab>
+  
+  <Tab title="needs_outreach">
+    Queued and sent to the named person shortly after your response.
+    
+    **Constraint:** Not instant. Say "I'll message [name]" not "I'm messaging [name] now."
+  </Tab>
+  
+  <Tab title="routing_updates">
+    Registered in `routing.json` (new member added to the care network).
+    
+    **Constraint:** Only full-access members (coordinator role) can add new members.
+  </Tab>
+</Tabs>
+
+### CAN DO
+
+- Respond to text messages about care coordination
+- Write updates to the family file (schedule, medications, events, notes)
+- Write corrections to `lessons.md` (you will see them in your next prompt)
+- Write updates to member profiles
+- Queue outreach messages to other family members (sent shortly after, not instant)
+- Register new family members when the coordinator provides name + phone
+- Track conversation history and remember context
+
+### CANNOT DO
+
+<Accordion title="Expand to see constraints">
+  - **Directly text people in real-time** — outreach is queued, not instant. Say "I'll message [name]" not "I'm messaging [name] now."
+  - **Access external systems** — calendars, pharmacies, medical records are not available.
+  - **Make medical decisions** — or provide medical advice.
+  - **See data outside what's in the family file** — and conversation history.
+  - **Add members without coordinator confirmation** — only full-access members can add.
+</Accordion>
+
+### Known Limitations (Testing Mode)
+
+- Conversation memory limited to recent messages
+- May occasionally misunderstand context — corrections welcome
+- Cannot process images or voice messages
+
+## Skill-Based Protocols
+
+The agent loads specialized skills based on message intent. These are protocol files in `runtime/learning/skills/`.
+
+### Social Skills [ALWAYS]
+
+**File:** `social.md` — Loaded into every prompt.
+
+#### Principle
+
+**Act on what you have. Ask only for what you need to act.**
+
+#### After Receiving Information
+
+<Steps>
+  <Step title="Confirm what you understood">
+    One sentence.
+  </Step>
+  <Step title="State what you're doing with it">
+    One sentence.
+  </Step>
+  <Step title="Offer the natural next action">
+    One question.
+  </Step>
+</Steps>
+
+#### Information Triage
+
+- Save ALL provided information immediately, even if incomplete
+- If critical info is missing (phone number for someone to contact), ask for that ONE thing
+- Never interrupt a user's flow to ask for low-priority fields
+- Never ask for optional fields when mandatory fields are being provided
+
+#### Priority Tiers
+
+<Tabs>
+  <Tab title="P0 (mandatory)">
+    **name, phone** — block until provided
+  </Tab>
+  <Tab title="P1 (operational)">
+    **role, conditions, schedule** — ask once if missing, accept defaults
+  </Tab>
+  <Tab title="P2 (enrichment)">
+    **allergies, blood type, insurance** — only when conversation involves that topic
+  </Tab>
+  <Tab title="P3 (ambient)">
+    **preferences, personal context** — record if volunteered, never ask
+  </Tab>
+</Tabs>
+
+#### Defaults When Not Specified
+
+- **Role:** `family_caregiver` (unless described as professional or volunteer)
+- **Access level:** `schedule+meds` (unless coordinator says otherwise)
+- **Relationship:** store if volunteered, leave blank if not
+
+#### Conversation Flow
+
+<Accordion title="Examples of correct flow">
+  - **One question at a time, always**
+  - After listing people: "Want me to invite them?" not "What's each person's role?"
+  - After describing a need: "I'll set that up" not "Are you sure?"
+  - After a confirmation: act, then report — don't re-confirm
+  - **Never say "before I can proceed"** — proceed with what you have
+</Accordion>
+
+<Info>
+**Time zone awareness:** Don't assume time of day based on UTC timestamp without converting to the family's timezone. Example: 05:53 UTC Thursday = 11:53 PM Wednesday CT.
+</Info>
+
+### Scheduling Skills [INTENT: SCHEDULE, AVAILABILITY]
+
+**File:** `scheduling.md` — Loaded when message involves scheduling, shifts, rides, appointments.
+
+#### Building a New Schedule
+
+When a coordinator describes a recurring need:
+
+<Steps>
+  <Step title="Confirm the pattern">
+    Days, times, what's needed.
+  </Step>
+  <Step title="If they named who covers what">
+    Populate directly.
+  </Step>
+  <Step title="If they named people but not slots">
+    Ask: "Want me to split the week evenly, or do you have a preference?"
+  </Step>
+  <Step title="Write to This Week section immediately">
+    Don't wait for a complete week.
+  </Step>
+</Steps>
+
+#### Modifying a Schedule
+
+When someone asks to swap, cancel, or change a shift:
+
+<Steps>
+  <Step title="Read the current This Week section">
+    From `family.md` or `schedule.md`.
+  </Step>
+  <Step title="Confirm the change">
+    "Move Solan from Monday to Wednesday?"
+  </Step>
+  <Step title="Apply and notify">
+    Update `This Week` in `family_file_updates` and notify affected members via `needs_outreach`.
+  </Step>
+</Steps>
+
+#### Availability Conflicts
+
+When a proposed assignment conflicts with known availability:
+
+<Steps>
+  <Step title="State the conflict">
+    "[Name] isn't available [time] — [reason if known]"
+  </Step>
+  <Step title="Suggest alternatives">
+    From the care team.
+  </Step>
+  <Step title="If no alternatives">
+    Flag as a gap, ask coordinator how to handle.
+  </Step>
+</Steps>
+
+#### Gap Detection
+
+When a required time slot has no one assigned:
+
+<Steps>
+  <Step title="Name the gap">
+    "No one is covering [day] [time]"
+  </Step>
+  <Step title="List who could cover">
+    Based on care team + availability.
+  </Step>
+  <Step title="Offer to reach out">
+    "Want me to ask [name] if they can take it?"
+  </Step>
+</Steps>
+
+#### Transportation Scheduling (Kano-specific, generalizable)
+
+When the need is rides to/from a location on a recurring schedule:
+
+- **Capture:** destination, days, pickup time, return time
+- **Capture:** who drives (primary list + standby list)
+- **Structure:** paired slots (morning pickup + afternoon return)
+- **Each slot needs one driver assigned**
+
+### Onboarding Skills [INTENT: ONBOARDING, NEW_MEMBER]
+
+**File:** `onboarding.md` — Loaded for first-contact flows and member registration.
+
+<Info>
+Details available in `runtime/learning/skills/onboarding.md`. This skill handles:
+- First-time setup flows
+- Member registration (name, phone, role, access level)
+- Welcome messages to new care team members
+</Info>
+
+## Protocol Loading
+
+### Runtime Routing
+
+**File:** `agent_root.md` — Master routing doc loaded into every system prompt.
+
+The runtime agent decides which skills to load based on message intent:
+
+```
+Schedule/availability request → load scheduling.md
+New member mention → load onboarding.md
+General care coordination → load social.md (always loaded)
+```
+
+### Care Protocols
+
+**Directory:** `fork/workspace/protocols/` — 16 protocol files covering:
+
+- Medications
+- Scheduling
+- Handoffs
+- Check-ins
+- Escalations
+- Transportation
+- ...and more
+
+These are domain knowledge files the agent references when handling specific care scenarios.
+
+## Enforcement Layer
+
+Some capabilities are enforced mechanically (code gates), not just prompt-level:
+
+### Role Filter
+
+**File:** `runtime/enforcement/role_filter.py`
+
+Pre-filters context by access level. A `schedule_only` member doesn't see medication data.
+
+### PHI Audit
+
+**File:** `runtime/enforcement/phi_audit.py`
+
+HIPAA-compliant logging. Tracks who accessed what, blocks responses that leak restricted information.
+
+### Family Editor
+
+**File:** `runtime/enforcement/family_editor.py`
+
+Edit-not-write file updates with backup. Prevents data loss from surgical replacements.
+
+### Approval Pipeline
+
+**File:** `runtime/enforcement/approval_pipeline.py`
+
+YES/NO confirmation for medication or member changes. Coordinator must approve before changes are applied.
+
+## Skill File Structure
+
+All skill files follow this pattern:
+
+```markdown
+# Skill Name [TRIGGER_CONDITION]
+
+## Principle
+One-line summary of the skill's purpose.
+
+## Scenario: [Name]
+Step-by-step protocol for this scenario.
+
+## Scenario: [Name]
+Step-by-step protocol for this scenario.
+
+## Examples
+Real examples from conversations (optional).
+```
+
+### Why This Format?
+
+- **Scannable:** Agent can quickly find relevant protocol
+- **Actionable:** Clear steps, not abstract guidelines
+- **Evolvable:** New scenarios added as they're discovered
+
+## Adding New Skills
+
+<Steps>
+  <Step title="Create the file">
+    `runtime/learning/skills/{name}.md`
+  </Step>
+  <Step title="Define trigger condition">
+    `[INTENT: KEYWORD, KEYWORD]` in the header
+  </Step>
+  <Step title="Write protocols">
+    Use scenario-based structure with clear steps.
+  </Step>
+  <Step title="Update routing">
+    Add to `agent_root.md` if it needs explicit routing.
+  </Step>
+</Steps>
+
+## Real Example: Multi-Question Violation
+
+**User message:** "Can you check if Solan is available Monday and also ask Degitu about her medication schedule?"
+
+**Bad response (violates social.md):**
+```
+Sure! What time on Monday are you looking for? And should I ask Degitu about morning or evening medications? Also, do you want me to follow up with both of them?
+```
+
+**Good response:**
+```
+I'll check with Solan about Monday and ask Degitu about her medication schedule. What time on Monday are you asking about?
+```
+
+**Why it's better:**
+- Acts on what's clear (contact Solan and Degitu)
+- Asks for the ONE missing piece (time on Monday)
+- One question, not three
+
+**If caught by review loop:**
+```bash
+python review_loop.py --since 1h --family kano
+```
+
+**Output:**
+```
+🔴 CRITICAL (1)
+Agent asked 3 questions in one response
+  Evidence: Sure! What time on Monday are you looking for? And should I...
+  → Lesson: One question per response, always. Never stack multiple questions.
+```
+
+This lesson would be promoted to `families/kano/lessons.md` and loaded into the next prompt.

@@ -1,0 +1,464 @@
+---
+title: Create Your First Family
+description: Set up a family directory with members, routing, and context files
+---
+
+Families are the core organizational unit in CareSupport. Each family has its own directory containing member information, care context, and conversation history.
+
+## What is a Family?
+
+A **family** in CareSupport is:
+
+- A care recipient (the person receiving care)
+- A care team (family members, caregivers, providers)
+- Routing configuration (phone numbers → members → roles → access levels)
+- Operational data (schedules, medications, notes)
+- Conversation history
+
+All stored in a single directory under `$CARESUPPORT_ROOT/families/`.
+
+## Family Directory Structure
+
+```
+families/
+└── kano/                      # Family ID (unique identifier)
+    ├── routing.json           # Phone number → member mapping
+    ├── family.md              # Primary care context (always loaded)
+    ├── schedule.md            # Weekly schedule
+    ├── medications.md         # Active medications
+    ├── timeline/              # Historical logs
+    │   └── 2026-02.log
+    ├── members/               # Individual member profiles (optional)
+    │   ├── liban.md
+    │   └── roman.md
+    └── staging/               # Review and testing (advanced)
+        ├── baseline/
+        ├── reviews/
+        └── saved/
+```
+
+## Step-by-Step Setup
+
+<Steps>
+  <Step title="Create family directory">
+    Choose a unique family ID (lowercase, no spaces). This becomes the directory name:
+    
+    ```bash
+    # Create family directory
+    mkdir -p $CARESUPPORT_ROOT/families/kano
+    cd $CARESUPPORT_ROOT/families/kano
+    ```
+    
+    <Note>
+    Family IDs should be memorable but not personally identifiable. Use nicknames, initials, or codes — not full names.
+    </Note>
+  </Step>
+
+  <Step title="Create routing.json">
+    This file maps phone numbers to family members and defines their access levels:
+    
+    ```json routing.json
+    {
+      "family_id": "kano",
+      "members": {
+        "+16517037981": {
+          "name": "Liban",
+          "role": "primary_caregiver",
+          "access_level": "full",
+          "active": true,
+          "chat_id": "linq-chat-uuid-here"
+        },
+        "+16516214824": {
+          "name": "Roman Tefera",
+          "role": "family_caregiver",
+          "access_level": "schedule+meds",
+          "active": true,
+          "relationship": "sister of care recipient"
+        },
+        "+19522157878": {
+          "name": "Amanti Melkamu",
+          "role": "community_supporter",
+          "access_level": "schedule",
+          "active": true,
+          "relationship": "community_helper"
+        }
+      },
+      "care_recipient": "Degitu",
+      "status": "active",
+      "created": "2026-02-25",
+      "notes": "Cold start. All care details to be learned through conversation."
+    }
+    ```
+    
+    ### Phone Number Format
+    
+    <Warning>
+    Phone numbers **must** be in E.164 format: `+[country code][number]`
+    
+    - ✅ Correct: `"+16517037981"`
+    - ❌ Wrong: `"651-703-7981"`, `"(651) 703-7981"`, `"6517037981"`
+    </Warning>
+    
+    ### Access Levels
+    
+    | Level | Can See | Use For |
+    |-------|---------|--------|
+    | `full` | Everything | Primary caregivers, coordinators |
+    | `schedule+meds` | Schedule, medications, urgent notes | Secondary caregivers, family |
+    | `schedule` | Schedule and urgent notes only | Community helpers, drivers |
+    | `provider` | Medical info, meds, care team | Healthcare providers |
+    | `limited` | Minimal context | Extended family, occasional helpers |
+    
+    ### Roles
+    
+    - `primary_caregiver` — Main coordinator, approves care changes
+    - `family_caregiver` — Family member involved in care
+    - `paid_caregiver` — Professional caregiver or aide
+    - `community_supporter` — Volunteer, neighbor, friend
+    - `provider` — Doctor, nurse, therapist
+    - `agency` — Home care agency, case manager
+  </Step>
+
+  <Step title="Create family.md">
+    This is the primary context file loaded for every message. Use the template from `fork/workspace/families/template/family.md`:
+    
+    ```bash
+    cp $CARESUPPORT_ROOT/families/template/family.md family.md
+    ```
+    
+    Then edit with your family's information:
+    
+    ```markdown family.md
+    ---
+    family_id: "kano"
+    created: "2026-02-25"
+    last_updated: "2026-02-25T05:00:00Z"
+    primary_caregiver: "+16517037981"
+    care_recipient: "Degitu"
+    status: active
+    ---
+    
+    # Current
+    <!-- Always loaded — keep under 2000 tokens -->
+    
+    ## Care Recipient
+    - Name: Degitu Tefera
+    - Age: ~66
+    - Primary conditions: Post-toe surgery recovery
+    - Mobility: Can walk, cannot drive or take public transit
+    - Emergency contact: Liban (+16517037981), Roman (+16516214824)
+    - Work: Downtown Minneapolis, Mon-Fri 8:00 AM - 4:30 PM
+    
+    ## Care Team
+    
+    | Role | Name | Phone | Access Level | Hours | Active |
+    |---|---|---|---|---|---|
+    | Primary caregiver | Liban | +16517037981 | full | | ✓ |
+    | Family caregiver | Roman Tefera | +16516214824 | schedule+meds | | ✓ |
+    | Community supporter | Amanti Melkamu | +19522157878 | schedule | | ✓ |
+    
+    ## Urgent Notes
+    - (none)
+    
+    ## Recent Updates
+    - 2026-02-25: Family created. Cold start — CareSupport will learn through conversation.
+    
+    ---
+    
+    # Reference
+    <!-- Loaded on demand for historical context -->
+    
+    ## Provider Contacts
+    
+    | Role | Name | Practice | Phone |
+    |---|---|---|---|
+    
+    ## Emergency Protocols
+    
+    ### Fall
+    1. Stay with care recipient. Do NOT move them.
+    2. Check: head impact? Bleeding? On blood thinners?
+    3. If head impact → call 911.
+    4. Notify ALL full-access members.
+    ```
+    
+    <Note>
+    The `family.md` file uses markdown for human readability. The agent reads this file on every message to understand the current care context.
+    </Note>
+  </Step>
+
+  <Step title="Optional: Create member profiles">
+    For families with complex relationships or specific member context:
+    
+    ```bash
+    mkdir members
+    ```
+    
+    Create individual profiles:
+    
+    ```markdown members/liban.md
+    # Liban
+    
+    **Role:** Primary caregiver and coordinator  
+    **Access Level:** Full  
+    **Phone:** +16517037981  
+    **Relationship:** Nephew of Degitu
+    
+    ## Background
+    - Works full-time but coordinates all care
+    - Main point of contact for providers
+    - Lives nearby, visits daily
+    
+    ## Communication Preferences
+    - Prefers text over calls
+    - Available 7am-11pm
+    - iMessage preferred
+    ```
+  </Step>
+
+  <Step title="Test phone resolution">
+    Verify CareSupport can resolve phone numbers to family members:
+    
+    ```bash
+    python runtime/scripts/sms_handler.py \
+      --from "+16517037981" \
+      --body "test" \
+      --dry-run
+    ```
+    
+    You should see:
+    ```json
+    {
+      "family_id": "kano",
+      "member_name": "Liban",
+      "role": "primary_caregiver",
+      "access_level": "full"
+    }
+    ```
+  </Step>
+
+  <Step title="Send your first message">
+    Send a real message through the system:
+    
+    ```bash
+    # Inbound message processing
+    python runtime/scripts/sms_handler.py \
+      --from "+16517037981" \
+      --body "Can you remind Roman about the appointment tomorrow?"
+    ```
+    
+    The system will:
+    1. Resolve +16517037981 → Liban (kano family, full access)
+    2. Load `family.md` context
+    3. Generate response using AI
+    4. Return the reply (you handle sending via Linq)
+  </Step>
+</Steps>
+
+## Understanding Access Control
+
+Access levels determine what each member can see from `family.md`:
+
+<Tabs>
+  <Tab title="full">
+    **Sees everything:**
+    - Care recipient details
+    - Full care team
+    - Schedule, medications
+    - Insurance, financial notes
+    - All conversations
+    - Emergency protocols
+    
+    **Can approve:**
+    - Medication changes
+    - New member additions
+    - Care plan updates
+  </Tab>
+  
+  <Tab title="schedule+meds">
+    **Sees:**
+    - Care recipient name, basic info
+    - Schedule (This Week)
+    - Active medications
+    - Urgent notes
+    - Emergency protocols
+    
+    **Cannot see:**
+    - Insurance information
+    - Financial discussions
+    - Full conversation history
+    - Family-only notes
+  </Tab>
+  
+  <Tab title="schedule">
+    **Sees:**
+    - Care recipient name
+    - Schedule (This Week) only
+    - Urgent notes
+    - Emergency contact
+    
+    **Cannot see:**
+    - Medications
+    - Provider contacts
+    - Insurance
+    - Past conversations
+  </Tab>
+  
+  <Tab title="limited">
+    **Sees:**
+    - Care recipient name
+    - Urgent notes (if tagged for all levels)
+    - Emergency contact
+    
+    **Use for:**
+    - Extended family with minimal involvement
+    - Occasional helpers
+    - People you're still evaluating
+  </Tab>
+</Tabs>
+
+## Real-World Example: The Kano Family
+
+Here's a complete working example from the CareSupport codebase:
+
+### Scenario
+
+- **Care Recipient:** Degitu (66, post-surgery recovery)
+- **Primary Caregiver:** Liban (nephew, works full-time)
+- **Secondary:** Roman (sister), Solan and Yada (brothers), Amanti (community helper)
+- **Challenge:** Coordinating daily rides to/from work while Degitu can't drive
+
+### Files
+
+<CodeGroup>
+```json routing.json
+{
+  "family_id": "kano",
+  "members": {
+    "+16517037981": {
+      "name": "Liban",
+      "role": "primary_caregiver",
+      "access_level": "full",
+      "active": true,
+      "chat_id": "1965f2b5-c5e6-4a08-80e9-9224b8a20d88"
+    },
+    "+16516214824": {
+      "name": "Roman Tefera",
+      "role": "family_caregiver",
+      "access_level": "schedule+meds",
+      "active": true,
+      "relationship": "sister of care recipient"
+    },
+    "+19522157878": {
+      "name": "Amanti Melkamu",
+      "role": "community_supporter",
+      "access_level": "schedule",
+      "active": true,
+      "relationship": "community_helper"
+    }
+  },
+  "care_recipient": "Degitu",
+  "status": "active",
+  "created": "2026-02-25"
+}
+```
+
+```markdown family.md (excerpt)
+## Care Recipient
+- Name: Degitu Tefera
+- Age: ~66
+- Primary conditions: Post-toe surgery recovery
+- Mobility: Can walk, cannot drive or take public transit
+- Work: Downtown Minneapolis, Mon-Fri 8:00 AM - 4:30 PM
+- Emergency contact: Liban (+16517037981)
+
+## Recent Updates
+- 2026-02-27: Populated ride schedule (Mon-Fri 7:30am/4:30pm)
+- 2026-02-26: Roman, Solan, Amanti added to care team
+- 2026-02-25: Family created. Cold start protocol.
+```
+</CodeGroup>
+
+### Usage
+
+Liban sends:
+> "Can Amanti take auntie to work tomorrow morning?"
+
+CareSupport:
+1. Resolves +16517037981 → Liban (full access)
+2. Loads family.md context
+3. Sees Amanti in care team with schedule access
+4. Generates response:
+
+> "I'll check with Amanti about tomorrow morning's ride to work. Degitu needs to be there by 8am, so pickup around 7:30am."
+
+Then messages Amanti (+19522157878) with schedule-filtered context.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Add Team Members" href="/guides/managing-members" icon="user-plus">
+    Add or remove care team members
+  </Card>
+  <Card title="Set Up Schedules" href="/guides/schedules" icon="calendar">
+    Create weekly schedules and routines
+  </Card>
+  <Card title="Configure Medications" href="/guides/medications" icon="pills">
+    Track active medications and refills
+  </Card>
+  <Card title="Start Coordinating" href="/guides/first-conversation" icon="messages">
+    Begin coordinating with your care team
+  </Card>
+</CardGroup>
+
+## Common Questions
+
+<AccordionGroup>
+  <Accordion title="Can one phone number be in multiple families?">
+    Yes. A caregiver can be part of multiple families (e.g., caring for both parents). The system resolves to the correct family based on conversation context or explicit family ID.
+  </Accordion>
+
+  <Accordion title="What happens if someone texts from an unknown number?">
+    Unknown numbers are not routed to any family. You can either:
+    1. Add them to `routing.json` with appropriate access level
+    2. Create a new family for them
+    3. Ignore (no response sent)
+  </Accordion>
+
+  <Accordion title="Can I change access levels later?">
+    Yes. Edit `routing.json` and update the `access_level` field. Changes take effect immediately on the next message.
+    
+    ```json
+    "+16516214824": {
+      "access_level": "full"  // Changed from schedule+meds
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="What's the difference between routing.json and family.md?">
+    - **routing.json** — WHO can message (phone → member mapping, access control)
+    - **family.md** — WHAT they're coordinating (care context, schedules, notes)
+    
+    `routing.json` is for authentication/authorization. `family.md` is operational data.
+  </Accordion>
+
+  <Accordion title="Do I need to create schedule.md and medications.md?">
+    No. These are optional. You can put everything in `family.md` initially. As the family grows, you can split into separate files:
+    
+    - `schedule.md` — Weekly schedules, recurring appointments
+    - `medications.md` — Active medications, refill tracking
+    - `members/` — Individual member profiles
+    
+    The agent loads these on demand when needed.
+  </Accordion>
+
+  <Accordion title="What is 'cold start'?">
+    **Cold start** means the family file starts nearly empty — just names and phone numbers. The CareSupport agent learns everything through conversation:
+    
+    - Schedules are added when someone mentions them
+    - Medications are recorded when discussed
+    - Relationships emerge from context
+    
+    This is faster than pre-filling everything manually, and often more accurate because it captures what actually matters to the family.
+  </Accordion>
+</AccordionGroup>

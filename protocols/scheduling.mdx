@@ -1,0 +1,498 @@
+---
+title: Scheduling & Care Coordination
+description: Care schedules, appointment coordination, and timing management
+---
+
+# Scheduling & Care Coordination
+
+CareSupport manages two types of scheduling: **Care Schedules** (recurring reminders and check-ins) and **Appointment Coordination** (one-time medical appointments and visits).
+
+## Care Schedules Protocol
+
+Create and manage recurring care reminders - medication times, appointment reminders, check-ins, shift handoffs.
+
+**Safety level:** Standard  
+**Requires approval:** Yes (for creating/modifying schedules)
+
+### Two Types of Schedules
+
+CareSupport uses two different schedule types depending on whether the task needs reasoning:
+
+<Accordion title="Agent Schedules (needs reasoning)">
+**Use when the task requires context and adaptation:**
+
+- Daily check-ins (different questions, adapts to context)
+- Wellness pattern analysis (weekly, looks at trends)
+- Needs assessment (monthly, reviews if care plan needs adjustment)
+
+**Example:**
+```python
+await create_care_schedule(
+    family_id="family-id",
+    schedule_type="agent",
+    title="Morning Check-In",
+    description="Read care plan, ask current caregiver about 
+                 overnight. Log response.",
+    cron="0 8 * * *",  # 8am daily
+    notify="+15551234567",  # who to message
+)
+```
+
+**How it works:**
+- System wakes up at scheduled time
+- Reads current care plan context
+- Composes contextual message based on recent events
+- Sends to appropriate caregiver
+- Logs response
+
+**Example message:**
+```
+Good morning Sarah 🌅
+How did Mom sleep last night? I noticed she had a 
+rough evening yesterday.
+
+Reminder: PT appointment today at 2pm
+```
+</Accordion>
+
+<Accordion title="Script Schedules (deterministic)">
+**Use when the task is fixed and doesn't need context:**
+
+- Medication reminders (fixed time, fixed message)
+- Appointment day-before reminders
+- Shift change alerts
+
+**Example:**
+```python
+await create_reminder(
+    family_id="family-id",
+    title="Evening Lisinopril",
+    message="Time for {recipient}'s Lisinopril 10mg. 
+             Reply DONE when taken ✅",
+    cron="0 20 * * *",  # 8pm daily
+    notify="+15551234567",
+    wait_for_confirmation=True,
+    escalate_after_minutes=60,  # escalate if no reply
+)
+```
+
+**How it works:**
+- System sends exact message at scheduled time
+- Optionally waits for confirmation ("DONE")
+- Can escalate to primary caregiver if no response
+- No reasoning or context needed
+</Accordion>
+
+### Default Schedules Created During Onboarding
+
+When a new family joins, these schedules are automatically created:
+
+| Schedule | Cron | Type | Description |
+|----------|------|------|-------------|
+| Morning check-in | `0 8 * * *` | Agent | Ask about overnight, today's plan |
+| Evening check-in | `0 20 * * *` | Agent | Day summary, tomorrow's prep |
+| Medication reminders | Per med schedule | Script | One per med, per time slot |
+| Weekly summary | `0 10 * * 0` | Agent | Week in review to primary caregiver |
+
+<Info>
+All times are customizable per family. If someone works nights and sleeps during the day, check-ins can be rescheduled to match their rhythm.
+</Info>
+
+### Modifying Schedules
+
+Schedules can be changed at any time:
+
+<Steps>
+  <Step title="List existing schedules">
+    "What schedules do we have set up?"
+    
+    System lists all current schedules with times and types
+  </Step>
+  
+  <Step title="Request modification">
+    "Change morning check-in to 7am instead of 8am"
+    
+    Or: "Stop sending evening check-ins on weekends"
+  </Step>
+  
+  <Step title="System drafts change">
+    "Changing morning check-in from 8am to 7am. Reply YES to confirm."
+  </Step>
+  
+  <Step title="On confirmation, update executes">
+    Schedule updated, change logged in care plan
+  </Step>
+</Steps>
+
+**Example conversation:**
+```
+Sarah:  Can we move the morning check-in to 7am? 
+        I start work at 7:30 and want to respond before then.
+        
+System: Changing morning check-in from 8am to 7am. 
+        Reply YES to confirm.
+        
+Sarah:  yes
+        
+System: Updated ✅ Morning check-ins will now happen at 7am 
+        starting tomorrow.
+```
+
+### Quiet Hours
+
+Respect family preferences for when NOT to send non-emergency messages:
+
+**Default:** 10pm - 7am (no messages during these hours)
+
+**Customizable:**
+- Per family member (aide schedules may differ from family)
+- Per day of week (weekends may differ from weekdays)
+- Emergency protocol ALWAYS overrides quiet hours
+
+**Example:**
+```
+Sarah:  Please don't text me after 9pm, I'm usually asleep
+        
+System: Got it. Setting quiet hours for you: 9pm - 7am. 
+        I'll only message during emergencies after 9pm. 
+        Reply YES to confirm.
+        
+Sarah:  yes
+        
+System: Updated ✅ No non-emergency messages to you between 9pm-7am.
+```
+
+<Warning>
+**Emergency messages override quiet hours.** If someone falls or reports chest pain at 2am, ALL relevant care team members are notified immediately regardless of quiet hours.
+</Warning>
+
+---
+
+## Appointment Coordination Protocol
+
+Schedule, remind, confirm, and prepare for medical appointments.
+
+**Safety level:** Standard  
+**Requires approval:** Yes (for schedule changes)
+
+### Workflows
+
+<Accordion title="Adding a New Appointment">
+<Steps>
+  <Step title="Family reports appointment">
+    "Mom has a cardiology appointment next Tuesday at 2pm"
+  </Step>
+  
+  <Step title="System checks for conflicts">
+    Reads care plan → checks This Week schedule for conflicts
+  </Step>
+  
+  <Step title="Drafts for confirmation">
+    "Adding to Mom's schedule: Cardiology with Dr. Smith, Tuesday 2pm. Reply YES to confirm."
+  </Step>
+  
+  <Step title="On confirmation, sets up automation">
+    - Updates This Week in care plan
+    - Sets day-before reminder
+    - Sets morning-of reminder
+    - Notifies team members on shift that day
+  </Step>
+</Steps>
+
+**Example:**
+```
+Sarah:  Mom's cardiologist appointment is next Tuesday at 2pm
+        
+System: Adding to Mom's schedule: Cardiology with Dr. Smith, 
+        Tuesday 2pm at Main Street Medical. Reply YES to confirm.
+        
+Sarah:  yes
+        
+System: Added ✅ I'll send reminders Monday evening and Tuesday morning.
+```
+</Accordion>
+
+<Accordion title="Day-Before Reminder">
+Automatically sent the evening before an appointment:
+
+**Message includes:**
+- Appointment type, provider, time, address
+- Prep checklist:
+  - Insurance card
+  - Current medication list ("I can send this")
+  - **Allergies** (ALWAYS included from care plan)
+  - Questions from "For Next Visit" section
+  - Transportation plan ("Who is taking Mom?")
+
+**Example:**
+```
+Reminder: Mom has Cardiology with Dr. Smith tomorrow at 2pm.
+
+Prep checklist:
+✓ Insurance card
+✓ Current medication list (reply MEDS if you want me to send it)
+✓ Allergies: Penicillin, Sulfa drugs
+✓ Questions to ask:
+  - Is the dizziness related to Lisinopril?
+  - When should we schedule next echocardiogram?
+✓ Transportation: Who is taking her?
+```
+
+<Info>
+**"For Next Visit" auto-surface:** If the care plan has a "For Next Visit" section with questions or topics for this provider, they automatically appear in the day-before reminder. After the appointment, system asks if those items were addressed.
+</Info>
+</Accordion>
+
+<Accordion title="Morning-Of Reminder">
+Sent the morning of the appointment:
+
+**Message includes:**
+- Appointment time and provider
+- Address (if available)
+- Quick action: "Reply MEDS for medication list"
+
+**Example:**
+```
+Mom's Cardiology appointment is today at 2pm with Dr. Smith.
+Address: 123 Main Street Medical Center, Suite 200
+
+Need the medication list sent to your phone? Reply MEDS.
+```
+
+**If caregiver replies MEDS:**
+```
+Current Medications for [Recipient Name]
+Updated: [Date]
+
+1. Lisinopril 20mg - Once daily (morning) - Dr. Smith
+2. Metformin 500mg - Twice daily - Dr. Patel  
+3. Atorvastatin 40mg - Once daily (evening) - Dr. Smith
+
+Allergies: Penicillin (rash), Sulfa drugs (hives)
+Pharmacy: Main Street Pharmacy, 555-1234
+```
+</Accordion>
+
+<Accordion title="After Appointment Follow-Up">
+Sent within 2 hours after appointment end time:
+
+**System asks:**
+```
+How did Mom's appointment go?
+Any changes to medications or care plan?
+```
+
+**Routes responses appropriately:**
+- Medication changes → medication-management protocol
+- New diagnoses or care changes → care-plan-updates protocol
+- New appointments scheduled → adds to calendar
+- "For Next Visit" items addressed → removes from list
+
+**Example:**
+```
+System: How did Mom's cardiology appointment go?
+        
+Sarah:  Good! Dr. Smith increased Lisinopril to 20mg and wants 
+        to see her again in 3 months
+        
+System: I'd like to update Mom's file: Lisinopril 10mg → 20mg, 
+        per Dr. Smith. Reply YES to confirm.
+        
+Sarah:  yes
+        
+System: Updated ✅ When is the 3-month follow-up?
+        
+Sarah:  May 15 at 2pm
+        
+System: Adding to Mom's schedule: Cardiology follow-up with 
+        Dr. Smith, May 15 at 2pm. Reply YES to confirm.
+```
+</Accordion>
+
+<Accordion title="Canceling or Rescheduling">
+<Steps>
+  <Step title="Family reports need to cancel">
+    "Need to cancel Mom's appointment Thursday"
+  </Step>
+  
+  <Step title="System drafts removal">
+    "Removing: Cardiology with Dr. Smith, Thursday 2pm. Reply YES to confirm."
+  </Step>
+  
+  <Step title="On confirmation, cleans up">
+    - Updates This Week schedule
+    - Cancels automated reminders
+  </Step>
+  
+  <Step title="Offers to help reschedule">
+    "Want me to help reschedule?"
+  </Step>
+</Steps>
+
+**Example:**
+```
+Sarah:  Need to cancel Thursday's cardiology appointment
+        
+System: Removing: Cardiology with Dr. Smith, Thursday 2pm. 
+        Reply YES to confirm.
+        
+Sarah:  yes
+        
+System: Removed ✅ Want me to help reschedule?
+        
+Sarah:  They moved it to next Tuesday same time
+        
+System: Adding to Mom's schedule: Cardiology with Dr. Smith, 
+        next Tuesday 2pm. Reply YES to confirm.
+```
+</Accordion>
+
+### Integration with Provider Communication
+
+Appointments work closely with provider communication:
+
+**Before appointment:**
+- Can prepare and send visit summary to provider's office
+- Includes recent changes, current concerns, questions
+
+**After appointment:**
+- Routes medication changes to medication-management protocol
+- Can send follow-up messages to provider if needed
+- Tracks outstanding items for next visit
+
+**Example:**
+```
+System: Here's the summary for Dr. Smith's appointment:
+        
+        [Medication list, recent changes, questions]
+        
+        Want me to send this to the office ahead of time?
+        
+Sarah:  yes please
+        
+System: Sent to Dr. Smith's office at cardiology@mainstreet.com ✅
+```
+
+---
+
+## Schedule Coordination Tips
+
+### For Primary Caregivers
+
+**Review your schedules:**
+- Text "what schedules do we have?" to see all recurring reminders
+- Adjust times to match your family's rhythm
+- Set quiet hours for each family member
+
+**Before appointments:**
+- Review day-before checklist
+- Request medication list if needed (reply MEDS)
+- Add questions to "For Next Visit" section anytime: "remind me to ask Dr. Smith about the dizziness"
+
+**After appointments:**
+- Report any medication or care plan changes
+- Schedule follow-up appointments immediately
+- System will add them to calendar and set reminders
+
+### For Care Team Members
+
+**You'll receive:**
+- Medication reminders if you're on shift during med times
+- Appointment reminders if you're scheduled to transport
+- Shift change notifications
+- Check-ins during your scheduled time
+
+**You can:**
+- Confirm medications with "done" or "taken"
+- Report if you won't be available: "I can't take Mom to the appointment Tuesday"
+- Request schedule changes: "Can we do handoff at 3pm instead of 2pm?"
+
+---
+
+## Common Schedule Patterns
+
+### Medication Reminder Schedule
+
+**Morning medications (8am):**
+```
+Script schedule, daily at 8am
+Message: "Time for Mom's Lisinopril 10mg. Reply DONE when taken ✅"
+Escalates to primary caregiver if no response in 1 hour
+```
+
+**Evening medications (8pm):**
+```
+Script schedule, daily at 8pm  
+Message: "Evening meds: Metformin 500mg and Atorvastatin 40mg. Reply DONE ✅"
+Escalates to primary caregiver if no response in 1 hour
+```
+
+### Check-In Schedule
+
+**Morning check-in (8am):**
+```
+Agent schedule, daily at 8am
+Reads care plan for context, asks current caregiver:
+- How did [recipient] sleep?
+- Any concerns this morning?
+- Reminds of today's appointments/tasks
+```
+
+**Evening check-in (8pm):**
+```
+Agent schedule, daily at 8pm
+Compiles day summary:
+- Meal status
+- Medication status  
+- Mood from reports
+- Tomorrow's first task
+- Asks for any concerns
+```
+
+### Weekly Summary Schedule
+
+**Sunday morning (10am):**
+```
+Agent schedule, weekly on Sunday at 10am
+Sent to primary caregiver:
+- Week in review
+- Medication compliance summary
+- Wellness patterns observed
+- Upcoming week preview
+- Any concerns to address
+```
+
+---
+
+## Integration with Other Protocols
+
+Scheduling works with:
+
+- **Medication Management**: Creates and manages medication reminder schedules
+- **Daily Check-In**: Agent schedules for morning and evening check-ins
+- **Caregiver Handoff**: Script schedules for shift change notifications
+- **Provider Communication**: Day-before and morning-of appointment reminders
+- **Emergency Response**: Can pause non-emergency schedules during crises
+- **Hospitalization**: Suspends home care schedules during inpatient stay
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Daily Check-Ins" icon="clipboard-check" href="/protocols/check-ins">
+    Learn about check-in workflows and what gets tracked
+  </Card>
+  
+  <Card title="Medication Reminders" icon="pills" href="/protocols/medication-management">
+    Understand medication reminder schedules in detail
+  </Card>
+  
+  <Card title="Set Up Your Schedule" icon="calendar-plus" href="/getting-started/scheduling">
+    Configure schedules for your family
+  </Card>
+  
+  <Card title="Provider Visits" icon="user-doctor" href="/guides/appointments">
+    Master appointment coordination
+  </Card>
+</CardGroup>

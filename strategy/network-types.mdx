@@ -1,0 +1,426 @@
+---
+title: Network Types
+description: Care network types, use cases, and coordination infrastructure
+---
+
+# Network Types and Use Cases
+
+## Core Thesis
+
+CareSupport is **network-specific infrastructure** that equips each **care network** to manage its care team effectively—**built for the whole network, with a Coordination Lead role (can be held by any member)**.
+
+Instead of universal protocols for everyone at once, we deliver specialized coordination tools tuned to **family networks**, **independent caregiver networks**, **agency networks**, and **platform networks**.
+
+<Info>
+**The Insight:** Care coordination fails not from lack of compassion, but from lack of **coordination context**. Existing systems capture *state* (who's assigned to what shift) but not *reasoning* (why Sarah was assigned instead of James, what alternatives were considered, what exceptions were made).
+</Info>
+
+---
+
+## Network Types Overview
+
+We focus on distinct care networks—how coordination is arranged and who benefits. The **Coordination Lead is a role**, not a fixed person; it can be held by the care recipient, a family member, a professional, or shared/rotating.
+
+<CardGroup cols={2}>
+  <Card title="Family Networks" icon="house-heart" href="#family-networks">
+    Coordinated by care recipient or family member. Unified view of all caregivers regardless of source.
+  </Card>
+  <Card title="Independent Caregiver Networks" icon="user-nurse" href="#independent-caregiver-networks">
+    Coordinated by independent caregiver. Professional tools for managing multiple families.
+  </Card>
+  <Card title="Agency Networks" icon="building" href="#agency-networks">
+    Coordinated by agency coordination lead. Enterprise ops with seamless family connectivity.
+  </Card>
+  <Card title="Platform Networks" icon="grid" href="#platform-networks">
+    Coordinated by platform ops or shared leads. Post-match coordination and retention.
+  </Card>
+</CardGroup>
+
+---
+
+## Family Networks
+
+### Who Coordinates + Who Benefits
+
+**Coordinated by:** Care recipient or family member (e.g., Rob; Marta as backup)  
+**Benefits:** Entire family care team (15 caregivers + family)  
+**Primary Coordination Need:** Unified view of all caregivers regardless of source  
+**Infrastructure:** **Family Platform** (pro-integrated)
+
+### Real Example: Rob's Network
+
+Rob is quadriplegic and coordinates his own care team of ~15 people:
+- 9 professional caregivers from 3 different home care agencies
+- Family members (mother Marta, sister, others)
+
+**The Problem Before CareSupport:**
+
+The three agencies don't speak to each other. They all use Rob as the proxy for his own care. When someone texts "I can't make it Saturday evening," Rob has to manually search through 15 contacts to find who can backfill. He coordinates his own life-or-death care from a phone he operates with his nose.
+
+<Accordion title="How Family Platform Helps Rob">
+  **Coverage Visibility:** Rob sees all caregivers from all three agencies in one unified schedule
+
+  **Gap Detection:** System automatically detects when someone cancels and identifies available backfill candidates
+
+  **Coordination Automation:** Instead of manually texting 15 people, Rob confirms one AI-generated proposal
+
+  **Handoff Continuity:** Each caregiver sees notes from the previous shift, regardless of which agency they're from
+
+  **Backup Coordinator:** Marta can step in when Rob needs rest, with full context preservation
+</Accordion>
+
+### Family Platform Features
+
+<CardGroup cols={2}>
+  <Card title="Task Engine" icon="list-check">
+    Recurrence patterns, ownership assignment, escalation rules
+  </Card>
+  <Card title="Calendar & Conflict Detection" icon="calendar">
+    Unified view across all caregivers, automatic conflict alerts
+  </Card>
+  <Card title="Care Notes" icon="notes-medical">
+    Voice-first input, searchable history, role-scoped access
+  </Card>
+  <Card title="Roles & Permissions" icon="shield-halved">
+    Flexible role stacking, scoped links for external professionals
+  </Card>
+</CardGroup>
+
+### Policy Pack: Family.Pro-Integrated
+
+- **Who:** Care recipient + family caregivers + professional caregivers
+- **Coordination Lead:** Care recipient or designated family member + backup
+- **Rules:** Handoff required at shift boundaries; PHI scoped by role
+- **Coverage:** 24/7 monitoring with escalation chains
+
+---
+
+## Independent Caregiver Networks
+
+### Who Coordinates + Who Benefits
+
+**Coordinated by:** Independent caregiver (e.g., Sarah)  
+**Benefits:** All families they serve (multi-family practice)  
+**Primary Coordination Need:** Professional tools for managing multiple families  
+**Infrastructure:** **CareGiver OS**
+
+### The CareGiver OS Vision
+
+**CareGiver OS** (capital "G") elevates independent professionals to a **professional identity** with tools to manage **multi-family networks**.
+
+<Note>
+Independent caregivers currently juggle multiple families using group texts, paper logs, and memory. They have no professional operating system. CareGiver OS provides the infrastructure they need to run a sustainable, high-quality multi-family practice.
+</Note>
+
+### Real Example: Sarah's Multi-Family Practice
+
+Sarah is an independent professional caregiver serving 4 families:
+- The Rodriguez family (medication management, meals)
+- The Chen family (mobility assistance, appointments)
+- The Williams family (overnight care)
+- The Johnson family (weekend respite)
+
+<Accordion title="How CareGiver OS Helps Sarah">
+  **Multi-Family Schedule:** Sarah sees all her commitments across families in one unified view
+
+  **Session Logging:** Quick voice-based session summaries that automatically appear in each family's timeline
+
+  **Availability Management:** Sarah sets her hours once; system prevents invalid assignments across all families
+
+  **Care Checklists:** Templates for common care tasks (medication admin, mobility assist) with family-specific customizations
+
+  **Business Operations:** Invoicing, payouts, tax reports, compliance signatures—all built in
+
+  **Professional Profile:** Verified credentials, certifications, reputation vault that travels with Sarah across families
+</Accordion>
+
+### CareGiver OS Features
+
+<CardGroup cols={2}>
+  <Card title="Multi-Client Schedule" icon="calendar-days">
+    Unified view across all families served
+  </Card>
+  <Card title="Session Logs" icon="clipboard-list">
+    Quick voice-first logging with automatic family timeline updates
+  </Card>
+  <Card title="Business Line & Boundaries" icon="business-time">
+    Clear separation between work and personal time
+  </Card>
+  <Card title="Invoicing & Payouts" icon="money-bill-wave">
+    Automated billing, tax reports, direct deposit
+  </Card>
+  <Card title="Compliance Prompts" icon="file-contract">
+    Required signatures, certifications, credential management
+  </Card>
+  <Card title="Reputation Vault" icon="star">
+    Portable professional profile and verified credentials
+  </Card>
+</CardGroup>
+
+### Policy Pack: Pro.Multi-Family
+
+- **Who:** Independent professional as Coordination Lead across families
+- **Rules:** Strict PHI scopes per family; no cross-family data leakage
+- **Boundaries:** Clear work hours; availability propagates to all families
+- **Audit:** Complete trail of which family data was accessed when
+
+---
+
+## Agency Networks
+
+### Who Coordinates + Who Benefits
+
+**Coordinated by:** Agency coordination lead/manager  
+**Benefits:** Agency workforce + Linked Circle families  
+**Primary Coordination Need:** Enterprise ops with family connectivity  
+**Infrastructure:** **Agency Platform**
+
+### The Agency Integration Challenge
+
+Home care agencies already have their own scheduling, HR, payroll, and EVV systems. They don't want to replace their entire stack. What they need is **seamless family connectivity** without heavy integration work.
+
+<Info>
+**Solution:** CareSupport provides a **Linked Circle** model—agencies keep their existing systems, CareSupport synchronizes the family view through minimal adapters (CSV/ICS/API-lite).
+</Info>
+
+### Real Example: Rob's Three Agencies
+
+Rob receives care from three different home care agencies. Each agency:
+- Schedules their own caregivers in their own system
+- Has their own HR, payroll, and compliance processes
+- Communicates with Rob independently
+
+Before CareSupport, the agencies never spoke to each other. Rob was the integration layer.
+
+<Accordion title="How Agency Platform Helps Rob's Agencies">
+  **Shared Timeline:** All three agencies see the same unified family timeline (with scoped access)
+
+  **Minimal Integration:** CSV export or ICS feed from agency system → auto-sync to family view
+
+  **Incident Routing:** When something goes wrong during a shift, it routes to the right agency coordinator automatically
+
+  **Reduced Support Load:** Family can see shift status directly instead of calling agency office
+
+  **Network Health Metrics:** Agency sees measurable reduction in coordinator calls, improved coverage %, higher NPS
+</Accordion>
+
+### Agency Platform Features
+
+<CardGroup cols={2}>
+  <Card title="Workforce Scheduling" icon="users-gear">
+    Enterprise scheduling with credentialing and compliance
+  </Card>
+  <Card title="Shared Timeline Sync" icon="arrows-rotate">
+    Bidirectional sync with family view via minimal adapters
+  </Card>
+  <Card title="Incident Routing" icon="triangle-exclamication">
+    Automatic escalation to right agency coordinator
+  </Card>
+  <Card title="Integration Adapters" icon="plug">
+    Pre-built connectors for HR/payroll/EVV/EMR systems
+  </Card>
+  <Card title="QA & Analytics" icon="chart-line">
+    Network Health Score, coverage metrics, NPS tracking
+  </Card>
+  <Card title="Policy Controls" icon="sliders">
+    Fine-grained access controls per linked family
+  </Card>
+</CardGroup>
+
+### Policy Pack: Agency.Family-Linked
+
+- **Who:** Agency coordinator + workforce + linked family members
+- **Access:** Read/write per policy; agency sees only their shifts unless broader access granted
+- **Adapter:** Minimal (CSV/ICS/API-lite) with path to deeper integrations
+- **Audit:** Complete trail of agency actions in family context
+- **ROI:** Measurable reduction in calls/emails, improved coverage %, higher retention
+
+---
+
+## Platform Networks
+
+### Who Coordinates + Who Benefits
+
+**Coordinated by:** Platform operations or shared leads  
+**Benefits:** Matched families + caregivers post-match  
+**Primary Coordination Need:** Post-match coordination infrastructure  
+**Infrastructure:** **Platform Integration (APIs + tools)**
+
+### The Platform Use Case
+
+Marketplaces like Care.com, Papa, Honor excel at **matching** families with caregivers. But post-match coordination—scheduling, handoffs, incident management—is where relationships often fail.
+
+<Note>
+**Opportunity:** Platforms can use CareSupport as the **coordination layer** that activates after the match, improving retention and reducing post-match churn.
+</Note>
+
+### Real Example: Care.com Match → CareSupport Handoff
+
+Family finds Sarah on Care.com. Match happens. Now what?
+
+**Before CareSupport:**
+- Family and Sarah coordinate via text messages and phone calls
+- No shared schedule, no handoff notes, no incident tracking
+- High churn—many matches fail within first 30 days
+
+**With CareSupport Integration:**
+
+<Accordion title="Post-Match Coordination Flow">
+  1. **Match Completion:** Care.com match confirmed
+  2. **CareSupport Handoff:** "Powered by CareSupport" prompt appears
+  3. **Shared Timeline Creation:** Family + Sarah onboard into shared coordination space
+  4. **Immediate Value:** First session logged, handoff captured, schedule visible
+  5. **Higher Retention:** Measurable reduction in 30-day churn
+</Accordion>
+
+### Platform Integration Features
+
+<CardGroup cols={2}>
+  <Card title="Match-to-Coordination Handoff" icon="handshake">
+    Seamless transition from match to active care coordination
+  </Card>
+  <Card title="Shared Timeline Initialization" icon="timeline">
+    Pre-populated context from match data
+  </Card>
+  <Card title="Retention Metrics" icon="chart-line">
+    30-day retention tracking, churn reduction measurement
+  </Card>
+  <Card title="White-Label Options" icon="paintbrush">
+    Platform-branded coordination experience
+  </Card>
+  <Card title="API Integration" icon="code">
+    RESTful APIs for match data, status updates, incident notifications
+  </Card>
+  <Card title="Billing Integration" icon="credit-card">
+    Connect to platform payment systems
+  </Card>
+</CardGroup>
+
+### Policy Pack: Platform.Post-Match
+
+- **Who:** Matched family + matched caregiver(s)
+- **Initialization:** Shared timeline created at match time
+- **Coordination Lead:** Family member (default) or caregiver (optional)
+- **Retention:** 30-day retention metrics enabled
+- **Billing:** Connect to platform payment flow or standalone
+
+---
+
+## The Circle + Policy Pack Model
+
+### Circle Definition
+
+**Circle:** Care Network as graph container with a **Coordination Lead** role (can be held by any member)
+
+<CardGroup cols={3}>
+  <Card title="Ownership" icon="crown">
+    Coordinator owns and controls the circle
+  </Card>
+  <Card title="Flexibility" icon="arrows-turn-to-dots">
+    Coordination Lead can be transferred or shared
+  </Card>
+  <Card title="Linkage" icon="link">
+    Circles can be linked between networks (e.g., agency linking to family)
+  </Card>
+</CardGroup>
+
+### Policy Pack Templates
+
+| Template | Network Type | Key Features |
+|----------|--------------|-------------|
+| **Family.Basic** | Family-only | Recipient + family caregivers; supporters perimeter; optional Coordination Lead |
+| **Family.Pro-Integrated** | Family + professionals | Adds professional caregivers; Coordination Lead + backup; handoff required |
+| **Pro.Multi-Family** | Independent caregiver | Pro as Coordination Lead across families; strict PHI scopes |
+| **Agency.Family-Linked** | Agency + family | Agency Coordination Lead + Linked Circle; minimal adapter; audit trail |
+| **Platform.Post-Match** | Platform network | Shared timeline initialized at match; retention metrics enabled |
+
+---
+
+## Network Health Score
+
+**North Star Metric:** Network Health Score (NHS) per network
+
+### NHS Inputs
+
+<CardGroup cols={3}>
+  <Card title="Coverage %" icon="percent">
+    Percentage of required coverage window actually covered
+  </Card>
+  <Card title="Gap Minutes/Week" icon="clock">
+    Total uncovered minutes per week
+  </Card>
+  <Card title="Time-to-Fill" icon="hourglass-start">
+    Median time from gap detection to resolution
+  </Card>
+  <Card title="Adherence" icon="check-double">
+    Medication and appointment adherence rates
+  </Card>
+  <Card title="Handoff Quality" icon="hand-holding-medical">
+    Percentage of shifts with proper handoff documentation
+  </Card>
+  <Card title="Coordination Time Saved" icon="clock-rotate-left">
+    Reduction in coordinator burden (hours/week)
+  </Card>
+</CardGroup>
+
+### Quick Wins by Network Type
+
+<Accordion title="Family Network (≤7 days)">
+  - Baseline NHS auto-generated
+  - First gap alert detected and resolved
+  - Handoff summary captured at least once
+  - Coverage % +10pp vs. baseline OR gap minutes/week −20%
+</Accordion>
+
+<Accordion title="Independent Caregiver (≤7 days)">
+  - First session logged & summarized; family sees it in Timeline
+  - Time-to-fill for next gap < 24h
+  - Adherence improvement for at least one med/appointment
+  - Pro issues first invoice/payout
+</Accordion>
+
+<Accordion title="Agency Network (≤14 days)">
+  - Coordinator calls/emails reduced for that family
+  - Coverage % up; support tickets down
+  - Agency sees NHS lift and handoff quality metrics
+</Accordion>
+
+---
+
+## Differentiation
+
+### What Makes CareSupport Different
+
+**One-liner:** *We equip each care network with network-specific infrastructure.*
+
+<Info>
+**The Context Graph Advantage:** CareSupport sits in the **orchestration path** for care coordination. Every gap detection, candidate evaluation, assignment, acceptance, and handoff flows through the system. This means we capture **decision traces** as they happen—not reconstructed from logs after the fact.
+</Info>
+
+### Why Incumbents Can't Replicate This
+
+- **Agency systems** store shift state, not coordination reasoning—that happens in the coordinator's head or on phone calls
+- **Family apps** store tasks and calendars, not why tasks were assigned to whom
+- **Marketplaces** store matches, not post-match coordination context
+
+To capture decision traces, incumbents would need to rebuild their architecture from the ground up and insert themselves into coordination workflows they currently don't touch. This is a multi-year structural disadvantage.
+
+### Our Moats
+
+<CardGroup cols={2}>
+  <Card title="Context Graph" icon="brain">
+    Decision traces captured in orchestration path; learning that compounds over time
+  </Card>
+  <Card title="NHS-Driven ROI" icon="chart-line">
+    Measurable value visible to coordinators
+  </Card>
+  <Card title="Policy Packs" icon="layer-group">
+    Tuned to each network (hard to copy at depth)
+  </Card>
+  <Card title="Professional Identity" icon="id-card">
+    Retention via CareGiver OS professional elevation
+  </Card>
+  <Card title="Trust" icon="shield-check">
+    Consent scopes and auditability per network
+  </Card>
+</CardGroup>

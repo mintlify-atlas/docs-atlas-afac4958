@@ -1,0 +1,464 @@
+---
+title: "Access Control & Permissions"
+description: "Role-based access control, PHI protection, and mechanical enforcement of data scoping"
+---
+
+## Overview
+
+CareSupport implements **mechanical access control** that operates at two layers: **pre-filter** (context scoping) and **post-check** (outbound message scanning). This ensures that members only see information appropriate to their role, and prevents the AI agent from accidentally leaking sensitive data.
+
+<Warning>
+  Access control is enforced by code gates in `runtime/enforcement/role_filter.py`, not just AI prompts. The agent cannot share what it never receives.
+</Warning>
+
+## Access Levels
+
+Each member in routing.json has an `access_level` that determines what sections of family.md they can see:
+
+<ParamField path="full" type="access_level">
+  **Full Access** — Sees everything. Can approve care plan changes.
+  
+  **Visible sections:** All (*)
+  
+  **Typical roles:** Primary caregiver, care recipient (if coordinating own care)
+  
+  **Can approve changes:** Yes
+</ParamField>
+
+<ParamField path="schedule+meds" type="access_level">
+  **Schedule + Medications** — Sees operational care details but not financial/insurance information.
+  
+  **Visible sections:** members, care_recipient, schedule, medications, appointments, availability, active_issues
+  
+  **Typical roles:** Family caregiver, professional caregiver
+  
+  **Can approve changes:** No
+</ParamField>
+
+<ParamField path="schedule" type="access_level">
+  **Schedule Only** — Sees when help is needed, not medical details.
+  
+  **Visible sections:** members, schedule, availability, active_issues
+  
+  **Typical roles:** Community supporter, backup family member
+  
+  **Can approve changes:** No
+</ParamField>
+
+<ParamField path="provider" type="access_level">
+  **Provider Access** — Medical information for professional healthcare providers.
+  
+  **Visible sections:** care_recipient, medications, appointments, members
+  
+  **Typical roles:** Visiting nurse, care manager, professional caregiver
+  
+  **Can approve changes:** No
+</ParamField>
+
+<ParamField path="limited" type="access_level">
+  **Limited Access** — Basic information only. No medical or scheduling details.
+  
+  **Visible sections:** members, care_recipient (basic info)
+  
+  **Typical roles:** Distant family, emergency contacts, occasional helpers
+  
+  **Can approve changes:** No
+</ParamField>
+
+## Enforcement Architecture
+
+### Layer 1: Pre-Filter (Context Scoping)
+
+Before the AI agent sees any data, `role_filter.py` strips restricted sections:
+
+```python
+from runtime.enforcement.role_filter import filter_family_context
+
+# Load full family.md from disk
+family_md = Path("families/kano/family.md").read_text()
+
+# Filter based on member's access level
+filtered_md = filter_family_context(family_md, access_level="schedule+meds")
+
+# Agent only receives filtered_md
+# Cannot share what it never received
+```
+
+**How it works:**
+
+1. Parse family.md into sections (using `## Headers`)
+2. Map section headers to access matrix keys
+3. Keep only sections allowed for this access level
+4. Reconstruct markdown with allowed sections only
+
+<Note>
+  The agent never sees restricted sections. This is the primary defense against data leakage.
+</Note>
+
+### Layer 2: Post-Check (Outbound Scanning)
+
+Before sending a response, scan for leaked medical terms:
+
+```python
+from runtime.enforcement.role_filter import check_outbound_message
+
+# Agent generated a response
+response_text = "Roman should give lisinopril at 8am."
+
+# Check for leakage
+result = check_outbound_message(response_text, access_level="schedule")
+
+if not result.is_clean:
+    # Block message
+    logger.error(f"Leakage detected: {result.leaked_categories}")
+    # Send generic error instead
+```
+
+**What it catches:**
+
+- Medication patterns (suffixes like `-pril`, `-sartan`, `-statin`)
+- Dosage patterns (`10mg`, `500 mg`)
+- Medical conditions (`diabetes`, `hypertension`, `dementia`)
+- Clinical terms (`A1C`, `blood pressure`, `insulin`)
+
+<Warning>
+  This is a safety net, not the primary defense. Well-configured pre-filtering means the agent shouldn't generate restricted content in the first place.
+</Warning>
+
+## Access Matrix Reference
+
+Complete mapping of access levels to visible sections:
+
+```python
+ACCESS_MATRIX = {
+    "full": {
+        "sections": ["*"],
+        "can_approve_changes": True,
+    },
+    "schedule+meds": {
+        "sections": [
+            "members", "care_recipient", "schedule", "medications",
+            "appointments", "availability", "active_issues",
+        ],
+        "can_approve_changes": False,
+    },
+    "schedule": {
+        "sections": [
+            "members", "schedule", "availability", "active_issues",
+        ],
+        "can_approve_changes": False,
+    },
+    "provider": {
+        "sections": [
+            "care_recipient", "medications", "appointments", "members",
+        ],
+        "can_approve_changes": False,
+    },
+    "limited": {
+        "sections": ["members", "care_recipient"],
+        "can_approve_changes": False,
+    },
+}
+```
+
+## Section Mapping
+
+Markdown section headers map to access matrix keys:
+
+| Markdown Header | Access Matrix Key |
+|-----------------|-------------------|
+| `## Members` | `members` |
+| `## Care Recipient` | `care_recipient` |
+| `## Schedule` | `schedule` |
+| `## Medications` | `medications` |
+| `## Active Medications` | `medications` |
+| `## Appointments` | `appointments` |
+| `## Availability` | `availability` |
+| `## Active Issues` | `active_issues` |
+| `## Recent Events` | `recent_events` |
+| `## Insurance & Coverage` | `insurance` |
+| `## Care Preferences` | `care_preferences` |
+
+<Note>
+  Headers are normalized: case-insensitive, spaces converted to underscores. "Active Medications" → "medications".
+</Note>
+
+## Role-Based Workflows
+
+### Primary Caregiver (Full Access)
+
+**Access level:** `full`
+
+**Can do:**
+- View all sections of family.md
+- Approve medication changes
+- Approve member additions
+- See insurance and financial information
+- Access full medication history
+- View all member profiles
+
+**Use case:** Liban coordinates all care for Degitu, manages the care team, and makes care plan decisions.
+
+### Family Caregiver (Schedule + Meds)
+
+**Access level:** `schedule+meds`
+
+**Can do:**
+- View schedule and availability
+- See medication list and schedules
+- Access appointment information
+- View active issues and urgent notes
+- See care team members
+
+**Cannot see:**
+- Insurance information
+- Financial details
+- Decision history
+- Full medication history
+
+**Use case:** Roman helps with medications and appointments but doesn't need to see insurance details.
+
+### Community Supporter (Schedule Only)
+
+**Access level:** `schedule`
+
+**Can do:**
+- View schedule (when help is needed)
+- See availability gaps
+- View active issues (non-medical)
+- See care team members
+
+**Cannot see:**
+- Medications
+- Medical conditions
+- Appointments (medical details)
+- Insurance information
+
+**Use case:** Amanti helps with rides and errands but doesn't need access to medical information.
+
+### Professional Provider (Provider Access)
+
+**Access level:** `provider`
+
+**Can do:**
+- View care recipient medical information
+- See full medication list
+- Access appointment history
+- View care team members
+
+**Cannot see:**
+- Family schedule
+- Availability gaps
+- Insurance information (unless shared separately)
+- Family communication preferences
+
+**Use case:** Visiting nurse needs medical context but not family logistics.
+
+## Setting Access Levels
+
+### During Onboarding
+
+Set access level in routing.json when adding a member:
+
+```json
+{
+  "+16516214824": {
+    "name": "Roman Tefera",
+    "role": "family_caregiver",
+    "access_level": "schedule+meds",
+    "active": true
+  }
+}
+```
+
+### Via Agent
+
+The agent uses conservative defaults when adding members:
+
+```
+Coordinator: "Add my neighbor Amanti. She can help with rides."
+
+Agent assigns:
+- role: community_supporter
+- access_level: schedule (default for community_supporter)
+```
+
+**Default mappings:**
+
+| Role | Default Access Level |
+|------|----------------------|
+| `primary_caregiver` | `full` |
+| `family_caregiver` | `schedule+meds` |
+| `professional_caregiver` | `schedule+meds` |
+| `community_supporter` | `schedule` |
+| `care_recipient` | `full` or `limited` (ask preference) |
+
+### Changing Access Levels
+
+1. Update routing.json:
+   ```json
+   {
+     "+16516214824": {
+       "access_level": "full"  // Changed from schedule+meds
+     }
+   }
+   ```
+
+2. Changes take effect on next message (routing.json is read per-message)
+
+3. Log the change in family.md Recent Updates:
+   ```markdown
+   - 2026-02-27: Roman's access level changed to full (approved by Liban)
+   ```
+
+<Warning>
+  Access level changes are security-sensitive. Always confirm with the primary coordinator before expanding access.
+</Warning>
+
+## PHI Audit Trail
+
+Every context load and response is logged with PHI audit details:
+
+```json
+{
+  "timestamp": "2026-02-28T19:27:29.383377+00:00Z",
+  "event": "context_load",
+  "family_id": "kano",
+  "accessor": {
+    "phone": "+16516214824",
+    "role": "family_caregiver",
+    "access_level": "schedule+meds"
+  },
+  "sections_loaded": [
+    "members", "care_recipient", "schedule",
+    "medications", "appointments", "availability", "active_issues"
+  ],
+  "trigger": "What meds does auntie take?"
+}
+```
+
+**Log location:** `fork/workspace/logs/{date}/phi_access.log`
+
+**Includes:**
+- Who accessed data (phone, role, access_level)
+- What sections they saw
+- What message triggered the access
+- Timestamp (UTC)
+- Leakage check results (passed/failed)
+
+<Note>
+  PHI audit logs are HIPAA-compliant and support compliance audits. Never delete these logs.
+</Note>
+
+## Approval Requirements
+
+Certain actions require approval from a member with `can_approve_changes=True`:
+
+**Requires approval:**
+- Adding/changing medications
+- Adding new care team members
+- Updating care plan
+- Changing emergency protocols
+
+**Approval flow:**
+
+1. Non-approver requests change: "Can we add aspirin 81mg daily?"
+2. Agent generates proposal, stores in `pending_approvals.json`
+3. Agent notifies approver: "Roman requested adding aspirin 81mg daily. Reply YES to approve."
+4. Approver responds: "YES"
+5. Agent executes change, logs to family.md
+
+**Approval schema:**
+
+```json
+{
+  "pending": [
+    {
+      "id": "med_20260228_001",
+      "type": "medication_add",
+      "requested_by": "Roman Tefera",
+      "requested_at": "2026-02-28T10:30:00Z",
+      "details": {
+        "medication": "aspirin",
+        "dose": "81mg",
+        "schedule": "daily, morning"
+      },
+      "requires_approval_from": ["+16517037981"]
+    }
+  ]
+}
+```
+
+## Testing Access Control
+
+Verify access filtering with dry-run:
+
+```bash
+python runtime/scripts/sms_handler.py \
+  --from "+16516214824" \
+  --body "What medications does auntie take?" \
+  --dry-run
+
+# Output shows:
+# - Member: Roman Tefera
+# - Access level: schedule+meds
+# - Filtered sections: [members, care_recipient, schedule, medications, ...]
+# - Response (with only allowed information)
+```
+
+## Best Practices
+
+<Warning>
+  **Start restrictive, expand as needed.** It's easier to grant access than to revoke it after sensitive information has been shared.
+</Warning>
+
+- Use `schedule+meds` as default for family caregivers
+- Reserve `full` for 1-2 primary coordinators only
+- Use `schedule` for community supporters
+- Document access level rationale in member profiles
+- Review access levels quarterly
+- Log all access level changes in family.md
+
+## Security Considerations
+
+### Phone Number Security
+
+- routing.json contains PHI (phone numbers + relationships)
+- Never commit routing.json to version control
+- Never share routing.json outside secure channels
+- Use separate routing.json per environment (dev/staging/prod)
+
+### Chat ID Security
+
+- chat_id is persistent and stable
+- Treat chat_id as sensitive (equivalent to session token)
+- Never log chat_id in public logs
+- Rotate chat_id if device/number changes
+
+### Access Level Auditing
+
+Regularly audit access levels:
+
+```bash
+# List all members and their access levels
+python runtime/scripts/audit_access.py --family kano
+
+# Output:
+# Liban (+16517037981): full
+# Roman Tefera (+16516214824): schedule+meds
+# Amanti Melkamu (+19522157878): schedule
+```
+
+## Next Steps
+
+<Card title="Onboarding New Families" icon="users-medical" href="/families/onboarding">
+  Learn how to set up a new family with proper access controls from the start.
+</Card>
+
+<Card title="Member Management" icon="users" href="/families/member-management">
+  Understand how to add members with appropriate roles and access levels.
+</Card>
+
+<Card title="Phone Routing" icon="phone" href="/families/routing-configuration">
+  Configure routing.json to map members to their access levels.
+</Card>

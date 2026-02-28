@@ -1,80 +1,215 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get CareSupport running in 5 minutes
 ---
 
-## Get started in three steps
+Get CareSupport operational and send your first coordinated care message in under 5 minutes.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+- Python 3.9 or higher
+- API keys for OpenRouter (or Anthropic) and Linq
+- A phone number for testing
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+## Quick Setup
+
+<Steps>
+  <Step title="Clone and install dependencies">
+    ```bash
+    git clone https://github.com/kanoliban/caresupport-original.git
+    cd caresupport-original
+    pip install openai anthropic python-dotenv
+    ```
+  </Step>
+
+  <Step title="Configure environment variables">
+    Create a `.env` file in the project root:
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    ```bash
+    # AI Backend (OpenRouter recommended)
+    OPENROUTER_API_KEY=your_openrouter_key
+    ANTHROPIC_API_KEY=your_anthropic_key  # Optional: for direct Anthropic access
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    # Linq API (iMessage/SMS gateway)
+    LINQ_API_KEY=your_linq_api_key
+    LINQ_DEVICE_ID=your_device_id
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    # Project root
+    CARESUPPORT_ROOT=/path/to/caresupport-original
+    ```
+  </Step>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+  <Step title="Test the SMS handler pipeline">
+    Dry-run a message to verify everything works:
+    
+    ```bash
+    python runtime/scripts/sms_handler.py \
+      --from "+16515551234" \
+      --body "Can someone drive Mom to her appointment tomorrow at 2pm?" \
+      --dry-run
+    ```
+    
+    You should see the full pipeline output including context loading, AI response, and enforcement checks.
+  </Step>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="Create your first family">
+    Set up a test family directory:
+    
+    ```bash
+    mkdir -p fork/workspace/families/test-family/members
+    ```
+    
+    Create `fork/workspace/families/test-family/routing.json`:
+    
+    ```json
+    {
+      "family_id": "test-family",
+      "members": {
+        "+16515551234": {
+          "name": "Test User",
+          "role": "primary_caregiver",
+          "access_level": "full"
+        }
+      }
+    }
+    ```
+    
+    Create `fork/workspace/families/test-family/family.md`:
+    
+    ```markdown
+    # Test Family Care Coordination
+    
+    ## Current Schedule
+    No schedule entries yet.
+    
+    ## Current Medications
+    No medications tracked yet.
+    
+    ## Notes
+    First time setup - ready for coordination.
+    ```
+  </Step>
 
-### Step 3: Go live
+  <Step title="Send your first message">
+    Process a real message (without --dry-run to actually send):
+    
+    ```bash
+    python runtime/scripts/sms_handler.py \
+      --from "+16515551234" \
+      --body "Hello CareSupport!"
+    ```
+    
+    The agent will:
+    1. Resolve your phone number to the test family
+    2. Load the family context
+    3. Generate a personalized response
+    4. Return the response (or send via Linq if configured)
+  </Step>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+  <Step title="Start the poller (optional)">
+    For real-time message processing, run the poller in the background:
+    
+    ```bash
+    tmux new-session -d -s caresupport \
+      "python3 runtime/scripts/poll_inbound.py --interval 15"
+    ```
+    
+    This checks for new messages every 15 seconds and processes them automatically.
+  </Step>
+</Steps>
 
-## Next steps
+## Verify It's Working
 
-Now that you have your docs running, explore these key features:
+You've successfully set up CareSupport if:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="✅ Dry-run succeeds" icon="check">
+    sms_handler.py --dry-run completes without errors
+  </Card>
+  
+  <Card title="✅ Context loads" icon="file">
+    You see family.md content in the pipeline output
+  </Card>
+  
+  <Card title="✅ AI responds" icon="robot">
+    The agent generates a contextual response
+  </Card>
+  
+  <Card title="✅ Enforcement runs" icon="shield">
+    PHI audit logs and role filtering execute
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+## Common Issues
+
+<Accordion title="Phone number not found">
+  Make sure the phone number in routing.json matches exactly (E.164 format with country code):
+  - ✅ Correct: `"+16515551234"`
+  - ❌ Wrong: `"651-555-1234"` or `"6515551234"`
+</Accordion>
+
+<Accordion title="API key errors">
+  Check that your .env file is in the project root and contains valid keys:
+  ```bash
+  # Test OpenRouter connection
+  curl -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+    https://openrouter.ai/api/v1/models
+  ```
+</Accordion>
+
+<Accordion title="CARESUPPORT_ROOT not found">
+  Set the absolute path in your .env file:
+  ```bash
+  CARESUPPORT_ROOT=/full/path/to/caresupport-original
+  ```
+  
+  Or let runtime/config.py auto-detect it (works if .env is in project root).
+</Accordion>
+
+<Accordion title="Import errors">
+  Make sure you're running commands from the project root and Python can find runtime modules:
+  ```bash
+  cd /path/to/caresupport-original
+  python runtime/scripts/sms_handler.py --help
+  ```
+</Accordion>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configure your setup" href="/setup/configuration" icon="gear">
+    Customize paths, AI backend, and Linq integration
+  </Card>
+  
+  <Card title="Add your family" href="/setup/first-family" icon="users">
+    Set up a real family with members and care context
+  </Card>
+  
+  <Card title="Explore protocols" href="/protocols/overview" icon="book">
+    Learn about the 16 care coordination protocols
+  </Card>
+  
+  <Card title="Run tests" href="/development/testing" icon="flask">
+    Verify system integrity with the test suite
+  </Card>
+</CardGroup>
+
+## Architecture Quick Reference
+
+```
+SMS/iMessage → Linq API → poll_inbound.py → sms_handler.py
+                                                  ↓
+                                    Phone resolution (routing.json)
+                                                  ↓
+                                    Context loading (family.md)
+                                                  ↓
+                                    Enforcement (role_filter + phi_audit)
+                                                  ↓
+                                    AI generation (Claude via OpenRouter)
+                                                  ↓
+                                    Family updates (family_editor)
+                                                  ↓
+                                    Response sent (Linq or stdout)
+```
+
+See [How It Works](/how-it-works) for the complete 13-step pipeline.

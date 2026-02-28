@@ -1,0 +1,346 @@
+---
+title: "Phone Routing Configuration"
+description: "Configure phone number mapping and member identification for message routing"
+---
+
+## Overview
+
+The `routing.json` file is the authoritative source for phone-to-member mapping. The runtime reads this file on every inbound message to identify the sender, load their profile, and determine their access level.
+
+<Warning>
+  Phone routing is critical for access control. Incorrect routing can expose sensitive medical information to the wrong person.
+</Warning>
+
+## routing.json Schema
+
+Complete schema with all fields:
+
+```json
+{
+  "family_id": "kano",
+  "members": {
+    "+16517037981": {
+      "name": "Liban",
+      "role": "primary_caregiver",
+      "access_level": "full",
+      "active": true,
+      "chat_id": "1965f2b5-c5e6-4a08-80e9-9224b8a20d88",
+      "relationship": "grandson"
+    }
+  },
+  "care_recipient": "Degitu",
+  "status": "active",
+  "created": "2026-02-25",
+  "notes": "Optional notes about this family setup"
+}
+```
+
+### Top-Level Fields
+
+<ParamField path="family_id" type="string" required>
+  Unique identifier for this family. Must match the directory name.
+</ParamField>
+
+<ParamField path="members" type="object" required>
+  Dictionary keyed by phone number (E.164 format). Each value is a member object with role, access_level, and other attributes.
+</ParamField>
+
+<ParamField path="care_recipient" type="string" required>
+  Name of the person receiving care. Used in agent prompts and family context.
+</ParamField>
+
+<ParamField path="status" type="string" required>
+  Family status: `active`, `inactive`, or `archived`. Only active families receive messages.
+</ParamField>
+
+<ParamField path="created" type="string" required>
+  Date this family was onboarded (YYYY-MM-DD format).
+</ParamField>
+
+<ParamField path="notes" type="string" optional>
+  Human-readable notes about the family setup, onboarding context, or special considerations.
+</ParamField>
+
+## Phone Number Format
+
+**Always use E.164 format:**
+- Include country code: `+1` for US/Canada
+- No spaces, dashes, or parentheses
+- Example: `+16517037981` (not `651-703-7981` or `(651) 703-7981`)
+
+<Note>
+  The system will NOT recognize phone numbers in any format other than E.164. Formatting errors will cause "Unknown phone" failures.
+</Note>
+
+## Member Object Schema
+
+Each phone number maps to a member object:
+
+```json
+{
+  "name": "Liban",
+  "role": "primary_caregiver",
+  "access_level": "full",
+  "active": true,
+  "chat_id": "1965f2b5-c5e6-4a08-80e9-9224b8a20d88",
+  "relationship": "grandson"
+}
+```
+
+<ParamField path="name" type="string" required>
+  Display name for this member. Used in messages, logs, and agent prompts.
+</ParamField>
+
+<ParamField path="role" type="enum" required>
+  One of:
+  - `primary_caregiver` — Main coordinator
+  - `family_caregiver` — Family member providing care
+  - `professional_caregiver` — Paid professional caregiver
+  - `community_supporter` — Friend, neighbor, volunteer
+  - `care_recipient` — Person receiving care
+</ParamField>
+
+<ParamField path="access_level" type="enum" required>
+  Controls what sections of family.md this member can see:
+  - `full` — All sections, can approve changes
+  - `schedule+meds` — Schedule, meds, appointments, urgent notes
+  - `schedule` — Schedule and urgent notes only
+  - `provider` — Medical info, meds, appointments
+  - `limited` — Basic member and care recipient info only
+</ParamField>
+
+<ParamField path="active" type="boolean" required>
+  Whether this member currently receives messages. Set to `false` to temporarily disable.
+</ParamField>
+
+<ParamField path="chat_id" type="string" optional>
+  Linq Partner API chat UUID. Populated after first message exchange. Used for reliable message routing (preferred over phone number).
+</ParamField>
+
+<ParamField path="relationship" type="string" optional>
+  Relationship to care recipient (e.g., "grandson", "neighbor"). Helps agent personalize responses.
+</ParamField>
+
+## Resolution Flow
+
+When an inbound message arrives, the system resolves the sender in this order:
+
+<Steps>
+  <Step title="chat_id Resolution (Preferred)">
+    The runtime first attempts to match the message's `chat_id` by scanning all routing.json files:
+    
+    ```python
+    # In sms_handler.py
+    member_info = resolve_chat_id(chat_id)
+    # Scans: fork/workspace/families/*/routing.json
+    # Matches: members[phone]["chat_id"] == chat_id
+    ```
+    
+    **Why chat_id is preferred:**
+    - Phone numbers can change
+    - Phone numbers can be shared (family plans)
+    - chat_id is stable and unique per conversation
+  </Step>
+
+  <Step title="Phone Number Fallback">
+    If chat_id resolution fails, fall back to phone number:
+    
+    ```python
+    member_info = resolve_phone(from_phone)
+    # Scans: fork/workspace/families/*/routing.json
+    # Matches: members[from_phone] exists
+    ```
+    
+    <Note>
+      Phone resolution works but is less reliable than chat_id. Always populate chat_id after first contact.
+    </Note>
+  </Step>
+
+  <Step title="Unknown Sender Handling">
+    If both resolution attempts fail:
+    
+    ```python
+    logger.warning(f"Unknown phone: {from_phone}, chat_id: {chat_id}")
+    # Message is logged but NOT processed
+    # No response sent
+    # No access to family data
+    ```
+    
+    <Warning>
+      Unknown senders are silently dropped for security. Always onboard members before they text the system.
+    </Warning>
+  </Step>
+</Steps>
+
+## chat_id Population
+
+The `chat_id` is returned by the Linq Partner API when creating a new chat:
+
+```bash
+python runtime/scripts/linq_gateway.py create \
+  --to "+16517037981" \
+  --body "Welcome to CareSupport!" \
+  --service iMessage
+
+# Returns:
+{
+  "chat_id": "1965f2b5-c5e6-4a08-80e9-9224b8a20d88",
+  "status": "sent"
+}
+```
+
+Manually add this to routing.json:
+
+```json
+{
+  "+16517037981": {
+    "name": "Liban",
+    "role": "primary_caregiver",
+    "access_level": "full",
+    "active": true,
+    "chat_id": "1965f2b5-c5e6-4a08-80e9-9224b8a20d88"
+  }
+}
+```
+
+## Access Level Enforcement
+
+The `access_level` field directly controls what sections of family.md the member can see. This is enforced **mechanically** by `runtime/enforcement/role_filter.py`:
+
+```python
+# Before the agent sees any data
+filtered_context = filter_family_context(family_md, access_level)
+
+# Member only receives sections they're allowed to see
+# Agent cannot share what it never received
+```
+
+**Access Matrix:**
+
+| Access Level | Visible Sections |
+|--------------|------------------|
+| `full` | All sections (*) |
+| `schedule+meds` | members, care_recipient, schedule, medications, appointments, availability, active_issues |
+| `schedule` | members, schedule, availability, active_issues |
+| `provider` | care_recipient, medications, appointments, members |
+| `limited` | members, care_recipient (basic info only) |
+
+<Note>
+  Access control happens at two layers: **pre-filter** (context scoping) and **post-check** (outbound message scanning). This ensures the agent cannot leak information even if it makes a mistake.
+</Note>
+
+## Multi-Family Scanning
+
+The resolution functions scan ALL families to find the matching member:
+
+```python
+# Scans all routing.json files
+for family_dir in Path("fork/workspace/families").iterdir():
+    routing_path = family_dir / "routing.json"
+    routing = json.load(routing_path.open())
+    
+    # Check each member's phone and chat_id
+    for phone, member in routing["members"].items():
+        if member.get("chat_id") == chat_id:
+            return {
+                "family_id": routing["family_id"],
+                "phone": phone,
+                "member": member
+            }
+```
+
+This allows the system to support:
+- Multiple families per coordinator (Liban coordinates for Degitu and his mother)
+- Professional caregivers working with multiple families
+- Community supporters helping multiple neighbors
+
+## Known Issues & Workarounds
+
+<Warning>
+  **Schema Mismatch** — Some legacy code expects `phone_routing.json` with `members` as an array. Current implementation uses `routing.json` with `members` as a dict keyed by phone. This mismatch is documented but not yet reconciled.
+</Warning>
+
+If you encounter resolution failures:
+
+1. Verify phone numbers are in E.164 format
+2. Check that `family_id` matches directory name
+3. Ensure `chat_id` is correct (copy from Linq response)
+4. Confirm member's `active` is `true`
+5. Check logs for "Unknown phone" warnings
+
+## Testing Phone Resolution
+
+Dry-run the SMS handler to test resolution:
+
+```bash
+python runtime/scripts/sms_handler.py \
+  --from "+16517037981" \
+  --body "Test message" \
+  --dry-run
+
+# Output shows:
+# - Resolved family_id
+# - Member name and role
+# - Access level
+# - Filtered sections
+```
+
+## Example: Adding Second Family
+
+Same coordinator managing two families:
+
+**Family 1: kano**
+```json
+{
+  "family_id": "kano",
+  "members": {
+    "+16517037981": {
+      "name": "Liban",
+      "role": "primary_caregiver",
+      "access_level": "full",
+      "active": true
+    }
+  },
+  "care_recipient": "Degitu"
+}
+```
+
+**Family 2: tefera**
+```json
+{
+  "family_id": "tefera",
+  "members": {
+    "+16517037981": {
+      "name": "Liban",
+      "role": "primary_caregiver",
+      "access_level": "full",
+      "active": true
+    }
+  },
+  "care_recipient": "Roman"
+}
+```
+
+<Note>
+  When a member appears in multiple families, the agent uses conversation context to determine which family is being discussed. Members can say "for Degitu" or "for Roman" to disambiguate.
+</Note>
+
+## Best Practices
+
+- **Always use E.164 format** for phone numbers
+- **Populate chat_id** after first message exchange
+- **Test resolution** with dry-run before going live
+- **Start with conservative access levels** (e.g., `schedule+meds` instead of `full`)
+- **Document relationships** to help agent personalize responses
+- **Use descriptive names** ("Roman Tefera" better than "Roman")
+- **Never share routing.json** — it contains PHI (phone numbers + family relationships)
+
+## Next Steps
+
+<Card title="Access Control Deep Dive" icon="shield" href="/families/access-control">
+  Learn how access levels are enforced mechanically and what each role can see.
+</Card>
+
+<Card title="Member Management" icon="users" href="/families/member-management">
+  Understand how to add, update, and manage care team members.
+</Card>

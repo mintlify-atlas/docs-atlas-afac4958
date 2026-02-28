@@ -1,0 +1,124 @@
+{
+  "projectType": "saas",
+  "projectName": "CareSupport",
+  "projectDescription": "AI-powered care coordination platform that coordinates care teams over SMS/iMessage using family.md files as operational state",
+  "theme": "almond",
+  "primaryColor": "#0D9488",
+  "lightColor": "#14B8A6",
+  "darkColor": "#0F766E",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "introduction",
+              "how-it-works",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Getting Started",
+            "pages": [
+              "quickstart",
+              "setup/installation",
+              "setup/configuration",
+              "setup/first-family"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/sms-coordination",
+              "features/family-files",
+              "features/agent-intelligence",
+              "features/enforcement-safety"
+            ]
+          },
+          {
+            "group": "Care Protocols",
+            "pages": [
+              "protocols/overview",
+              "protocols/medication-management",
+              "protocols/scheduling",
+              "protocols/check-ins",
+              "protocols/escalations"
+            ]
+          },
+          {
+            "group": "Family Management",
+            "pages": [
+              "families/onboarding",
+              "families/member-management",
+              "families/routing-configuration",
+              "families/access-control"
+            ]
+          },
+          {
+            "group": "Agent System",
+            "pages": [
+              "agent/identity",
+              "agent/learning-system",
+              "agent/capabilities",
+              "agent/review-process"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Technical Reference",
+        "groups": [
+          {
+            "group": "Runtime",
+            "pages": [
+              "reference/sms-handler",
+              "reference/enforcement-layer",
+              "reference/linq-integration",
+              "reference/configuration"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/testing",
+              "development/scripts",
+              "development/project-structure"
+            ]
+          },
+          {
+            "group": "Product Strategy",
+            "pages": [
+              "strategy/vision",
+              "strategy/network-types",
+              "strategy/roadmap"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "SMS/iMessage-native care coordination",
+    "AI agent with family.md operational state",
+    "16 domain-specific care protocols",
+    "Multi-person coordination within care teams",
+    "PHI-compliant enforcement and audit logging",
+    "Learning system with conversation review",
+    "Linq API integration for iMessage",
+    "Role-based access control for family members"
+  ],
+  "publicApiSurface": [
+    "runtime/scripts/sms_handler.py - Core SMS processing pipeline",
+    "runtime/scripts/poll_inbound.py - Message polling loop",
+    "runtime/scripts/linq_gateway.py - Linq API client",
+    "runtime/scripts/webhook_receiver.py - Real-time webhook handler",
+    "runtime/enforcement/role_filter.py - Access control enforcement",
+    "runtime/enforcement/phi_audit.py - HIPAA audit logging",
+    "runtime/enforcement/family_editor.py - Safe file updates",
+    "runtime/enforcement/approval_pipeline.py - Confirmation workflows",
+    "runtime/scripts/review_loop.py - Conversation review system",
+    "runtime/scripts/review_staging.py - Review staging management"
+  ]
+}
